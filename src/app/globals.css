@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+/*
+  Reyse Admin — design tokens.
+  Same brand family as reyse.co.uk (indigo + gold) but built for a dark,
+  data-dense "command centre" surface rather than the light marketing site.
+*/
+:root {
+  --color-bg: #0b0d14;
+  --color-surface: #12151f;
+  --color-surface-raised: #171b28;
+  --color-border: #232838;
+  --color-border-strong: #2f3548;
+
+  --color-ink: #e8e9f0;
+  --color-ink-muted: #8b90a3;
+  --color-ink-faint: #575c6f;
+
+  --color-indigo: #6366f1;
+  --color-indigo-deep: #312e81;
+  --color-accent: #f59e0b;
+  --color-accent-deep: #b45309;
+
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+}
+
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-raised: var(--color-surface-raised);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-ink: var(--color-ink);
+  --color-ink-muted: var(--color-ink-muted);
+  --color-ink-faint: var(--color-ink-faint);
+  --color-indigo: var(--color-indigo);
+  --color-indigo-deep: var(--color-indigo-deep);
+  --color-accent: var(--color-accent);
+  --color-accent-deep: var(--color-accent-deep);
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-space-grotesk);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* Thin, dark-friendly scrollbars for the data-dense screens */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-faint);
+}
