@@ -28,6 +28,9 @@ export async function GET(request: NextRequest) {
   const enquiries = await db.enquiry.findMany({
     where,
     orderBy: { createdAt: "desc" },
+    // No pager UI yet -- a hard cap keeps this endpoint bounded as volume
+    // grows rather than silently fetching an unbounded result set.
+    take: 200,
   });
 
   return NextResponse.json({ enquiries });
