@@ -10,12 +10,21 @@ datasource db {
   provider = "postgresql"
 }
 
+// Prefixed underlying DB object names (ra_*) -- this Postgres instance is
+// shared with the old `reyse` app's ~50-model schema (same project, same
+// database, not yet fully decommissioned). "EnquiryStatus" already exists
+// there, confirmed the hard way (P3005 baseline attempt collided with it
+// live in production). Prisma-level names stay clean (Enquiry,
+// EnquiryChannel, EnquiryStatus) via @@map -- only the real SQL names are
+// namespaced, so nothing above the schema file needs to know or care.
 enum EnquiryChannel {
   WEBSITE
   WHATSAPP
   INSTAGRAM
   FACEBOOK
   MANUAL
+
+  @@map("ra_enquiry_channel")
 }
 
 enum EnquiryStatus {
@@ -23,6 +32,8 @@ enum EnquiryStatus {
   CONTACTED
   WON
   LOST
+
+  @@map("ra_enquiry_status")
 }
 
 model Enquiry {
@@ -60,4 +71,5 @@ model Enquiry {
   @@index([channel])
   @@index([deletedAt])
   @@index([createdAt])
+  @@map("ra_enquiry")
 }
