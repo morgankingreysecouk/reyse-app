@@ -20,7 +20,11 @@ export default async function proxy(request: NextRequest) {
 
 export const config = {
   // Protect everything except the login page, the NextAuth API routes,
-  // and static/framework assets. Anything not matched here requires a
-  // signed-in session with the allowlisted email (enforced in auth.ts).
-  matcher: ["/((?!login|api/auth|_next/static|_next/image|favicon.ico).*)"],
+  // static/framework assets, and api/public/* -- that last one is called
+  // server-to-server by the marketing site's contact form with no user
+  // session at all, so it can't sit behind a session check. It protects
+  // itself instead with its own API-key check (see
+  // src/app/api/public/enquiries/route.ts). Everything else still requires
+  // a signed-in session with the allowlisted email (enforced in auth.ts).
+  matcher: ["/((?!login|api/auth|api/public|_next/static|_next/image|favicon.ico).*)"],
 };
