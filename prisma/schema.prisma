@@ -37,39 +37,317 @@ enum EnquiryStatus {
 }
 
 model Enquiry {
-  id           String         @id @default(cuid())
+  id           String  @id @default(cuid())
   fullName     String
   email        String
   phone        String
   businessName String
   message      String?
 
-  channel      EnquiryChannel @default(WEBSITE)
-  status       EnquiryStatus  @default(NEW)
-  notes        String?
+  channel EnquiryChannel @default(WEBSITE)
+  status  EnquiryStatus  @default(NEW)
+  notes   String?
 
   // Marked true for enquiries created via "Add test enquiry" -- excluded
   // from real stats and clearly flagged in the UI, never mixed in with
   // genuine leads.
-  isTest       Boolean        @default(false)
+  isTest Boolean @default(false)
 
   // Soft delete only. "Delete" moves an enquiry to Trash by setting this;
   // nothing is ever hard-deleted from the UI, so an accidental delete is
   // always recoverable. A scheduled hard-purge of old trash is a future
   // decision, not something this builds silently.
-  deletedAt    DateTime?
+  deletedAt DateTime?
 
   // Set the first time status moves away from NEW -- this is what the
   // response-time stat is measured from, separate from createdAt so a
   // status changed back to NEW later doesn't corrupt the metric.
   firstRespondedAt DateTime?
 
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([channel])
   @@index([deletedAt])
   @@index([createdAt])
   @@map("ra_enquiry")
+}
+
+// Live Chat -- reyse.co.uk's Claude-powered widget persists every
+// conversation here (Reyse-Website's api/chat.ts calls the public API
+// below). Not just enquiries: full transcripts, including conversations
+// that never convert, since "most-asked questions" and real usage
+// analytics need the whole picture, not just the leads.
+enum ChatRole {
+  USER
+  ASSISTANT
+  OPERATOR
+
+  @@map("ra_chat_role")
+}
+
+enum ChatConversationStatus {
+  ACTIVE
+  CLOSED
+
+  @@map("ra_chat_conversation_status")
+}
+
+// Broad, deterministic keyword buckets for "most-asked questions" --
+// applied to a conversation's opening message. Not NLP/ML clustering
+// (no infra for that, and it would need real training data this product
+// doesn't have yet); a handful of honest keyword buckets is a real,
+// truthful answer to "what do visitors actually ask about" without
+// pretending to more sophistication than exists.
+enum ChatTopic {
+  PRICING
+  HOW_IT_WORKS
+  GETTING_STARTED
+  OTHER
+
+  @@map("ra_chat_topic")
+}
+
+model ChatConversation {
+  id String @id @default(cuid())
+
+  // Client-generated id stored in the visitor's sessionStorage -- ties every
+  // message in one browser session to the same conversation without any
+  // account/login on the visitor's side.
+  visitorId String
+
+  status ChatConversationStatus @default(ACTIVE)
+  topic  ChatTopic              @default(OTHER)
+
+  // Set true the moment the AI's send_enquiry tool actually fires for this
+  // conversation -- this is what the conversion-rate stat is measured
+  // against, distinct from whether Morgan has since actioned it.
+  convertedToEnquiry Boolean @default(false)
+
+  notes String?
+
+  // Soft delete only, same pattern as Enquiry -- never hard-deleted from
+  // the UI, always recoverable via restore.
+  deletedAt DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastMessageAt DateTime @default(now())
+
+  messages ChatMessage[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@index([lastMessageAt])
+  @@index([visitorId])
+  @@map("ra_chat_conversation")
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id])
+
+  role    ChatRole
+  content String
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@map("ra_chat_message")
+}
+
+// Single-row table -- the grounding facts (pricing, features, how it
+// works) the chat's system prompt is built from. Editable from the admin
+// UI instead of only in code, so pricing changes don't need a deploy.
+// Reyse-Website's api/chat.ts fetches the current content on every
+// request (with a hardcoded fallback if reyse-app is unreachable).
+model ChatKnowledge {
+  id        String   @id @default(cuid())
+  content   String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("ra_chat_knowledge")
+}
+
+// Social Media Automation -- generates and posts single/carousel content to
+// Instagram and Facebook, promoting Reyse itself (not a per-client feature).
+// Prior art: the old `reyse` backend had THREE unreconciled systems for this
+// (single-post, carousel, story), each with its own image source, storage
+// backend, and even a different env var for the same Instagram account --
+// explicitly judged "not good enough" and the reason this is one unified
+// pipeline instead of three. Shares ChatKnowledge above as its grounding
+// facts, same as the live chat widget, so pricing/feature claims can't drift
+// between the two surfaces.
+enum SocialPlatform {
+  INSTAGRAM
+  FACEBOOK
+
+  @@map("ra_social_platform")
+}
+
+enum SocialPostType {
+  SINGLE
+  CAROUSEL
+
+  @@map("ra_social_post_type")
+}
+
+enum SocialPostStatus {
+  DRAFT // generated, sitting in the review queue
+  SCHEDULED // approved (or auto-approved in AUTONOMOUS mode), waiting for scheduledFor
+  PUBLISHED
+  FAILED
+  REJECTED
+
+  @@map("ra_social_post_status")
+}
+
+enum SocialPillar {
+  PROMOTION
+  EDUCATION
+  SOCIAL_PROOF
+  BEHIND_THE_SCENES
+  NEWS
+  TIPS
+
+  @@map("ra_social_pillar")
+}
+
+enum SocialImageSource {
+  AI_PHOTO
+  TEMPLATE
+
+  @@map("ra_social_image_source")
+}
+
+enum SocialPublishingMode {
+  REVIEW_QUEUE
+  AUTONOMOUS
+
+  @@map("ra_social_publishing_mode")
+}
+
+// Two rows for a cross-posted pair (one INSTAGRAM, one FACEBOOK) share a
+// groupId so the admin UI can present them as one card -- independent rows
+// so each platform's publish/failure/edit state tracks separately, and
+// Instagram going down doesn't block Facebook or vice versa.
+model SocialPost {
+  id      String @id @default(cuid())
+  groupId String
+
+  platform SocialPlatform
+  type     SocialPostType
+  pillar   SocialPillar
+  status   SocialPostStatus @default(DRAFT)
+
+  caption  String
+  hashtags String[]
+
+  scheduledFor DateTime?
+  publishedAt  DateTime?
+
+  externalPostId    String?
+  externalPermalink String?
+  failureReason     String?
+  rejectionReason   String?
+
+  reviewedAt DateTime?
+  reviewedBy String?
+
+  // Soft delete only -- same pattern as every other feature this session,
+  // never hard-deleted from the UI, always recoverable via restore.
+  deletedAt DateTime?
+
+  images SocialPostImage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([groupId])
+  @@index([deletedAt])
+  @@index([scheduledFor])
+  @@index([platform])
+  @@map("ra_social_post")
+}
+
+model SocialPostImage {
+  id     String     @id @default(cuid())
+  postId String
+  post   SocialPost @relation(fields: [postId], references: [id])
+
+  order   Int
+  assetId String
+  asset   SocialAsset @relation(fields: [assetId], references: [id])
+  altText String
+
+  source SocialImageSource
+
+  @@index([postId])
+  @@map("ra_social_post_image")
+}
+
+// Image bytes stored directly in Postgres and served via a public (no-auth)
+// route -- Meta's Graph API fetches images by URL, so whatever we use has to
+// be reachable over plain HTTPS with no secret. Keeping this in our own DB
+// avoids a second storage dependency (Azure Blob, S3, ...) that could be
+// misconfigured with nobody around to fix it.
+model SocialAsset {
+  id       String @id @default(cuid())
+  data     Bytes
+  mimeType String
+  width    Int
+  height   Int
+
+  images SocialPostImage[]
+
+  createdAt DateTime @default(now())
+
+  @@map("ra_social_asset")
+}
+
+// Singleton settings row -- publishing mode is the one safety-critical
+// control. REVIEW_QUEUE (default): nothing goes live without a human
+// approving it in the admin UI. AUTONOMOUS: approved-by-default, published
+// as soon as scheduledFor arrives. Defaults to REVIEW_QUEUE so nothing posts
+// unsupervised before the quality has actually been seen.
+model SocialSettings {
+  id String @id @default("singleton")
+
+  publishingMode SocialPublishingMode @default(REVIEW_QUEUE)
+  enabled        Boolean              @default(true)
+
+  postsPerWeekInstagram Int @default(3)
+  postsPerWeekFacebook  Int @default(3)
+
+  lastGeneratedAt DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  @@map("ra_social_settings")
+}
+
+// Generic AI/paid-API cost tracking, reused across features -- the standing
+// Feature Build Process requires every cost-incurring feature to log here;
+// this is the first feature to actually build the table (flagged as a gap
+// since the live chat widget shipped). Modelled on the old backend's
+// AiUsageLog, minus the mess: no per-tenant field (single-tenant product),
+// one shared table for every feature rather than one per system.
+model AiUsageLog {
+  id      String @id @default(cuid())
+  feature String
+  model   String
+
+  inputTokens  Int?
+  outputTokens Int?
+  imageCount   Int?
+  costUsd      Float?
+
+  createdAt DateTime @default(now())
+
+  @@index([feature, createdAt])
+  @@index([createdAt])
+  @@map("ra_ai_usage_log")
 }

@@ -5,7 +5,7 @@ import { Logo } from "@/components/shell/logo";
 
 export default async function LoginPage() {
   const session = await getSession();
-  if (session) redirect("/");
+  if (session) redirect("/admin");
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg px-4">
