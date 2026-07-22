@@ -21,7 +21,11 @@ export interface ContentIssue {
   message: string;
 }
 
-export function validateCaption(caption: string, hashtags: string[]): ContentIssue[] {
+export function validateCaption(
+  caption: string,
+  hashtags: string[],
+  hashtagRange: { min: number; max: number } = { min: 3, max: 5 },
+): ContentIssue[] {
   const issues: ContentIssue[] = [];
 
   if (caption.includes("—")) {
@@ -33,8 +37,11 @@ export function validateCaption(caption: string, hashtags: string[]): ContentIss
   if (caption.length > 2200) {
     issues.push({ field: "caption", message: `${caption.length} chars, exceeds Instagram's 2200 cap` });
   }
-  if (hashtags.length < 3 || hashtags.length > 5) {
-    issues.push({ field: "hashtags", message: `${hashtags.length} hashtags, must be 3-5` });
+  if (hashtags.length < hashtagRange.min || hashtags.length > hashtagRange.max) {
+    issues.push({
+      field: "hashtags",
+      message: `${hashtags.length} hashtags, must be ${hashtagRange.min}-${hashtagRange.max}`,
+    });
   }
   for (const tag of hashtags) {
     if (/\s/.test(tag) || tag.startsWith("#")) {
