@@ -73,3 +73,101 @@ model Enquiry {
   @@index([createdAt])
   @@map("ra_enquiry")
 }
+
+// Live Chat -- reyse.co.uk's Claude-powered widget persists every
+// conversation here (Reyse-Website's api/chat.ts calls the public API
+// below). Not just enquiries: full transcripts, including conversations
+// that never convert, since "most-asked questions" and real usage
+// analytics need the whole picture, not just the leads.
+enum ChatRole {
+  USER
+  ASSISTANT
+  OPERATOR
+
+  @@map("ra_chat_role")
+}
+
+enum ChatConversationStatus {
+  ACTIVE
+  CLOSED
+
+  @@map("ra_chat_conversation_status")
+}
+
+// Broad, deterministic keyword buckets for "most-asked questions" --
+// applied to a conversation's opening message. Not NLP/ML clustering
+// (no infra for that, and it would need real training data this product
+// doesn't have yet); a handful of honest keyword buckets is a real,
+// truthful answer to "what do visitors actually ask about" without
+// pretending to more sophistication than exists.
+enum ChatTopic {
+  PRICING
+  HOW_IT_WORKS
+  GETTING_STARTED
+  OTHER
+
+  @@map("ra_chat_topic")
+}
+
+model ChatConversation {
+  id        String   @id @default(cuid())
+
+  // Client-generated id stored in the visitor's sessionStorage -- ties every
+  // message in one browser session to the same conversation without any
+  // account/login on the visitor's side.
+  visitorId String
+
+  status    ChatConversationStatus @default(ACTIVE)
+  topic     ChatTopic              @default(OTHER)
+
+  // Set true the moment the AI's send_enquiry tool actually fires for this
+  // conversation -- this is what the conversion-rate stat is measured
+  // against, distinct from whether Morgan has since actioned it.
+  convertedToEnquiry Boolean @default(false)
+
+  notes     String?
+
+  // Soft delete only, same pattern as Enquiry -- never hard-deleted from
+  // the UI, always recoverable via restore.
+  deletedAt DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastMessageAt DateTime @default(now())
+
+  messages ChatMessage[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@index([lastMessageAt])
+  @@index([visitorId])
+  @@map("ra_chat_conversation")
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id])
+
+  role    ChatRole
+  content String
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@map("ra_chat_message")
+}
+
+// Single-row table -- the grounding facts (pricing, features, how it
+// works) the chat's system prompt is built from. Editable from the admin
+// UI instead of only in code, so pricing changes don't need a deploy.
+// Reyse-Website's api/chat.ts fetches the current content on every
+// request (with a hardcoded fallback if reyse-app is unreachable).
+model ChatKnowledge {
+  id        String   @id @default(cuid())
+  content   String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("ra_chat_knowledge")
+}
