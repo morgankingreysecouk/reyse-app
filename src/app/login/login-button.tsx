@@ -17,7 +17,7 @@ export function LoginButton() {
       )}
       <Button
         className="w-full"
-        onClick={() => signIn("google", { callbackUrl: "/" })}
+        onClick={() => signIn("google", { callbackUrl: "/admin" })}
       >
         Continue with Google
       </Button>

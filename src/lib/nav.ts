@@ -16,13 +16,15 @@ export interface NavItem {
 }
 
 // Foundation shell — one entry per eventual product area. Pages are
-// placeholders until each workflow gets built out for real.
+// placeholders until each workflow gets built out for real. All dashboard
+// routes live under /admin (22 July 2026, Morgan's call) rather than at
+// the site root.
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Overview", href: "/", icon: LayoutDashboard },
-  { label: "Enquiries", href: "/enquiries", icon: Inbox },
-  { label: "Live Chat", href: "/live-chat", icon: MessageCircle },
-  { label: "Social", href: "/instagram", icon: Camera },
-  { label: "Leads", href: "/leads", icon: Users },
-  { label: "Analytics", href: "/analytics", icon: BarChart3 },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { label: "Overview", href: "/admin", icon: LayoutDashboard },
+  { label: "Enquiries", href: "/admin/enquiries", icon: Inbox },
+  { label: "Live Chat", href: "/admin/live-chat", icon: MessageCircle },
+  { label: "Social", href: "/admin/social", icon: Camera },
+  { label: "Leads", href: "/admin/leads", icon: Users },
+  { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
+  { label: "Settings", href: "/admin/settings", icon: Settings },
 ];
