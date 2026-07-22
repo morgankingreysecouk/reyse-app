@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { SocialPillar, SocialPlatform, SocialPostType } from "@/generated/prisma/client";
-import { PILLAR_CONFIG } from "./pillars";
+import type { SocialPillar } from "@/generated/prisma/client";
+import { PILLAR_CONFIG, type PostPlan } from "./pillars";
 import { validateCaption, validateSlide, type ContentIssue } from "./contentValidation";
 import { logAiUsage } from "@/lib/aiUsageLog";
 
@@ -14,8 +14,10 @@ export interface GeneratedSlide {
 }
 
 export interface GeneratedPost {
-  caption: string;
-  hashtags: string[];
+  instagramCaption: string;
+  instagramHashtags: string[];
+  facebookCaption: string;
+  facebookHashtags: string[];
   slides: GeneratedSlide[];
   issues: ContentIssue[];
 }
@@ -28,7 +30,7 @@ const SLIDE_SCHEMA = {
     imagePrompt: {
       type: "string",
       description:
-        "A photography-style prompt for an AI image generator: specific camera/lens/lighting language, describes a real scene (not the Reyse product itself, which has no physical form), avoiding generic stock-photo cliches.",
+        "A specific, concrete SCENE description for an AI photo (what's in frame, what's happening, the mood) -- not the Reyse product itself, which has no physical form. Do not include camera/lens/lighting jargon, that's added separately; just describe the real-world scene clearly and specifically.",
     },
     altText: { type: "string", description: "Accessibility alt text describing what the image shows" },
   },
@@ -39,11 +41,24 @@ const SLIDE_SCHEMA = {
 const OUTPUT_SCHEMA = {
   type: "object",
   properties: {
-    caption: { type: "string", description: "The full, ready-to-post caption: hook, then value, then one clear CTA" },
-    hashtags: {
+    instagramCaption: {
+      type: "string",
+      description: "The full Instagram caption: hook in the first line, then value, then one clear CTA. 150-220 words.",
+    },
+    instagramHashtags: {
       type: "array",
       items: { type: "string" },
-      description: "3-5 lowercase hashtags, no # prefix, no spaces",
+      description: "Exactly 3-5 lowercase hashtags, no # prefix, no spaces, specific to this post's content.",
+    },
+    facebookCaption: {
+      type: "string",
+      description:
+        "A DIFFERENT, shorter, more conversational caption for Facebook -- not a copy of the Instagram one. 40-80 words, ends with a genuine question to invite comments.",
+    },
+    facebookHashtags: {
+      type: "array",
+      items: { type: "string" },
+      description: "Exactly 2-3 lowercase hashtags, no # prefix, no spaces.",
     },
     slides: {
       type: "array",
@@ -51,25 +66,20 @@ const OUTPUT_SCHEMA = {
       description: "1 entry for a single post, 6-8 entries for a carousel (slide 1 = hook, last slide = CTA)",
     },
   },
-  required: ["caption", "hashtags", "slides"],
+  required: ["instagramCaption", "instagramHashtags", "facebookCaption", "facebookHashtags", "slides"],
   additionalProperties: false,
 };
 
-function platformNote(platform: SocialPlatform): string {
-  return platform === "INSTAGRAM"
-    ? "Platform: Instagram. The caption's first line is truncated hard behind a 'more' tap after ~10-12 words, so it must work as a standalone hook. Visual-first, slightly more casual tone."
-    : "Platform: Facebook. Facebook tolerates and rewards more descriptive text than Instagram -- the hook still opens strong, but the body can be a little more explanatory.";
+function formatNote(plan: PostPlan): string {
+  if (plan.type === "CAROUSEL") {
+    return `Format: CAROUSEL, exactly ${plan.slideCount} slides. Slide 1 is the hook that stops the scroll (matches the caption's opening line) -- it will be rendered over a real photo, so its imagePrompt matters most. The final slide is the call to action. Keep one consistent idea per slide -- this should read as a complete, swipeable mini-guide, not a wall of text split arbitrarily.`;
+  }
+  return "Format: SINGLE image post. Write exactly 1 slide entry.";
 }
 
-function formatNote(type: SocialPostType): string {
-  return type === "CAROUSEL"
-    ? "Format: CAROUSEL. Write 6-8 slides. Slide 1 is the hook that stops the scroll (matches the caption's opening line). The final slide is the call to action. Keep one consistent idea per slide -- this should read as a complete, swipeable mini-guide, not a wall of text split arbitrarily."
-    : "Format: SINGLE image post. Write exactly 1 slide entry.";
-}
-
-function buildSystemPrompt(pillar: SocialPillar, platform: SocialPlatform, type: SocialPostType, knowledge: string): string {
+function buildSystemPrompt(pillar: SocialPillar, plan: PostPlan, knowledge: string): string {
   const config = PILLAR_CONFIG[pillar];
-  return `You are acting as Reyse's social media manager, writing a real post for Reyse's own Instagram and Facebook accounts. Reyse is a UK company selling AI guest-messaging automation to independent holiday-let (short-term rental) hosts. The output must be genuinely good enough to publish as-is, not a rough draft -- write like an experienced, disciplined social media manager, not a generic AI.
+  return `You are acting as Reyse's social media manager, writing a real post for Reyse's own Instagram and Facebook accounts. Reyse is a UK company selling AI guest-messaging automation to independent holiday-let (short-term rental) hosts. The output must be genuinely good enough to publish as-is, not a rough draft -- write like an experienced, disciplined social media manager, not a generic AI. Never accept a flat, generic result: if a line could apply to any company, rewrite it until it could only be Reyse.
 
 GROUNDING -- the only source of truth for any fact you state:
 <knowledge>
@@ -84,24 +94,30 @@ BRAND VOICE:
 - Professional but warm, confident without being hypey. No exclamation-mark overload.
 - Never use generic AI-marketing cliches: "game-changer", "revolutionize", "unlock your potential", "in today's fast-paced world", "elevate your", "seamless", "dive into", "take it to the next level".
 
-CAPTION STRUCTURE (hook, value, CTA):
-- First line is the hook: a bold statement, a specific question, or a relatable problem stated directly (not "Ever wondered..."). Under 12 words.
-- Middle: deliver real value that earns the read.
-- End: exactly one clear call to action.
-${platformNote(platform)}
+INSTAGRAM CAPTION (write this first, it's the primary version):
+- First line is the hook: a bold statement, a specific question, or a relatable problem stated directly (not "Ever wondered..."). Under 12 words -- it's the only text visible before Instagram truncates to "more".
+- No emoji in the hook line itself; emoji are fine in the body and near the CTA, used sparingly.
+- Target length: 150-220 words total (this range gets measurably higher engagement than shorter or much longer captions). Deliver real value, don't pad.
+- End with ONE specific call to action, not a generic "learn more" -- something like inviting a save, a share, or a specific reply (e.g. "save this for your next turnover" beats "check out our website").
+- Exactly 3-5 hashtags, lowercase, no spaces, genuinely specific to this post's content and to holiday-let hosting or hospitality tech. Not generic reach-bait tags.
 
-HASHTAGS: exactly 3-5, lowercase, no spaces, genuinely relevant to this specific post and to holiday-let hosting or hospitality tech. Not generic reach-bait tags.
+FACEBOOK CAPTION (write a genuinely different version, not a copy):
+- Facebook audiences respond to a shorter, more conversational, more personal voice than Instagram. Target 40-80 words.
+- End with a genuine, specific question that invites a comment (Facebook engagement is conversation-driven, not hashtag-driven).
+- Exactly 2-3 hashtags, lower impact on Facebook than Instagram, so keep them minimal and precise.
 
 PILLAR FOR THIS POST: ${config.label}
 ${config.brief}
 
-${formatNote(type)}`;
+IMAGE DIRECTION FOR THIS PILLAR: ${config.imageBrief}
+When writing each slide's imagePrompt, be concrete and specific about what's actually in frame (not "a host working", but "a woman in her 40s at a kitchen table, laptop open beside a mug of tea, looking at her phone with a relaxed half-smile, morning light through a window behind her"). The scene should feel lived-in and real, never a staged stock-photo showroom.
+
+${formatNote(plan)}`;
 }
 
 export async function generatePost(params: {
   pillar: SocialPillar;
-  platform: SocialPlatform;
-  type: SocialPostType;
+  plan: PostPlan;
   knowledge: string;
   retryFeedback?: string;
 }): Promise<GeneratedPost> {
@@ -113,13 +129,13 @@ export async function generatePost(params: {
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 4000,
+    max_tokens: 5000,
     thinking: { type: "adaptive" },
     output_config: {
       effort: "high",
       format: { type: "json_schema", schema: OUTPUT_SCHEMA },
     },
-    system: buildSystemPrompt(params.pillar, params.platform, params.type, params.knowledge),
+    system: buildSystemPrompt(params.pillar, params.plan, params.knowledge),
     messages: [{ role: "user", content: userMessage }],
   });
 
@@ -135,17 +151,29 @@ export async function generatePost(params: {
     throw new Error("Caption generation returned no text content");
   }
   const parsed = JSON.parse(textBlock.text) as {
-    caption: string;
-    hashtags: string[];
+    instagramCaption: string;
+    instagramHashtags: string[];
+    facebookCaption: string;
+    facebookHashtags: string[];
     slides: GeneratedSlide[];
   };
 
-  const issues: ContentIssue[] = [...validateCaption(parsed.caption, parsed.hashtags)];
+  const issues: ContentIssue[] = [
+    ...validateCaption(parsed.instagramCaption, parsed.instagramHashtags, { min: 3, max: 5 }),
+    ...validateCaption(parsed.facebookCaption, parsed.facebookHashtags, { min: 2, max: 3 }),
+  ];
   for (const slide of parsed.slides) {
     issues.push(...validateSlide(slide.headline, slide.body, slide.altText));
   }
 
-  return { caption: parsed.caption, hashtags: parsed.hashtags, slides: parsed.slides, issues };
+  return {
+    instagramCaption: parsed.instagramCaption,
+    instagramHashtags: parsed.instagramHashtags,
+    facebookCaption: parsed.facebookCaption,
+    facebookHashtags: parsed.facebookHashtags,
+    slides: parsed.slides,
+    issues,
+  };
 }
 
 // Generates a post, and if the automated quality gate finds a real problem,
@@ -154,26 +182,19 @@ export async function generatePost(params: {
 // this is a quality improver, not the only safety net).
 export async function generateValidatedPost(params: {
   pillar: SocialPillar;
-  platform: SocialPlatform;
-  type: SocialPostType;
+  plan: PostPlan;
   knowledge: string;
 }): Promise<GeneratedPost> {
   const first = await generatePost(params);
   if (first.issues.length === 0) return first;
 
-  console.warn(
-    `Social post generation (${params.pillar}/${params.platform}) failed quality checks, retrying once:`,
-    first.issues,
-  );
+  console.warn(`Social post generation (${params.pillar}) failed quality checks, retrying once:`, first.issues);
 
   const feedback = first.issues.map((i) => `${i.field}: ${i.message}`).join("; ");
   const second = await generatePost({ ...params, retryFeedback: feedback });
 
   if (second.issues.length > 0) {
-    console.warn(
-      `Social post generation (${params.pillar}/${params.platform}) still failed quality checks after retry, leaving for human review:`,
-      second.issues,
-    );
+    console.warn(`Social post generation (${params.pillar}) still failed quality checks after retry, leaving for human review:`, second.issues);
   }
 
   return second;

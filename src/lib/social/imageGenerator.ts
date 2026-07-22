@@ -15,13 +15,29 @@ function readPngDimensions(buffer: Buffer): { width: number; height: number } {
 
 const AI_MODEL = "black-forest-labs/flux-1.1-pro" as const;
 
-// Appended to every AI-photo prompt so the whole feed has one consistent
-// look rather than each image looking like a different stock library, and
-// to steer away from the "AI slop" tells research flagged (perfect
-// unnatural lighting, generic stock-photo framing): specific camera/lens
-// and lighting language, not just "high quality photo".
-const PHOTO_STYLE_SUFFIX =
-  ", shot on a Fujifilm X100V, natural window or overcast daylight, shallow depth of field, warm muted tones, candid and unposed, documentary/editorial photography style, no visible text or logos in the image, high detail";
+// Rotated per image (not one fixed lens for the whole feed) so the AI
+// photos have genuine visual variety rather than looking like one
+// photoshoot repeated -- directly requested after the first real batch
+// looked too uniform. Lens choice follows real photography convention:
+// 24mm for wider interior/establishing scenes, 35mm for documentary
+// candids, 50mm for natural everyday framing, 85mm for closer portraits.
+const LENS_VARIANTS = [
+  "shot on a Fujifilm X100V, 35mm lens, documentary candid feel",
+  "shot on a Sony A7IV, 50mm lens, natural everyday framing",
+  "shot on a Leica Q2, 28mm lens, wide establishing scene",
+  "shot on a Canon R6, 85mm lens, softly blurred background, closer portrait framing",
+] as const;
+
+// Appended to every AI-photo prompt to steer away from the "AI slop"
+// tells research flagged (perfect unnatural lighting, showroom-clean
+// staging, generic stock-photo framing): specific camera/lens language,
+// a "lived-in" instruction (the single most effective phrase for
+// stopping interiors looking like AI renders), and explicit negative
+// constraints.
+function photoStyleSuffix(): string {
+  const lens = LENS_VARIANTS[Math.floor(Math.random() * LENS_VARIANTS.length)];
+  return `, ${lens}, natural window or overcast daylight, shallow depth of field, warm muted tones, candid and unposed, documentary/editorial photography style, the space feels genuinely lived-in with small real imperfections, not a showroom. No visible text, logos, or warped hands/objects in the image. High detail.`;
+}
 
 async function generateAiPhotoBuffer(prompt: string): Promise<Buffer | null> {
   const token = process.env.REPLICATE_API_TOKEN;
@@ -34,7 +50,7 @@ async function generateAiPhotoBuffer(prompt: string): Promise<Buffer | null> {
     const replicate = new Replicate({ auth: token });
     const output = (await replicate.run(AI_MODEL, {
       input: {
-        prompt: `${prompt}${PHOTO_STYLE_SUFFIX}`,
+        prompt: `${prompt}${photoStyleSuffix()}`,
         aspect_ratio: "4:5",
         output_format: "png",
       },

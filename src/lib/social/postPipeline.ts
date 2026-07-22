@@ -1,10 +1,10 @@
 import { db } from "@/lib/db";
 import { getKnowledge } from "@/lib/chatKnowledge";
-import { nextPillar, PILLAR_CONFIG } from "./pillars";
+import { nextPillar, planPost } from "./pillars";
 import { generateValidatedPost } from "./captionGenerator";
 import { generateAndStoreImage } from "./imageGenerator";
 import { publishToInstagram, publishToFacebook } from "./graphApi";
-import type { SocialPlatform } from "@/generated/prisma/client";
+import type { SocialPlatform, SocialImageSource } from "@/generated/prisma/client";
 
 const SETTINGS_ID = "singleton";
 // Small buffer before an AUTONOMOUS-mode post is eligible to publish --
@@ -24,37 +24,47 @@ function fullCaption(caption: string, hashtags: string[]): string {
   return `${caption}\n\n${hashtags.map((h) => `#${h}`).join(" ")}`;
 }
 
+// Serializes generateNewPostPair calls -- without this, two calls landing
+// close together (a manual "Generate now" click racing the scheduler
+// tick, or a double-click) both read the same pillar-rotation count before
+// either write lands, so both pick the identical pillar. Confirmed as the
+// real cause of an early batch showing three near-duplicate Education
+// drafts. A simple promise-chain mutex is enough for a single Node
+// process; would need a real lock if this ever runs multi-instance.
+let generationLock: Promise<unknown> = Promise.resolve();
+
+function withGenerationLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = generationLock.then(fn, fn);
+  generationLock = result.catch(() => undefined);
+  return result;
+}
+
 // Generates one new cross-posted pair (an Instagram row + a Facebook row,
-// sharing a groupId and identical caption/images) and lands them either as
-// DRAFT (REVIEW_QUEUE mode -- needs a human to approve before anything is
-// scheduled) or SCHEDULED (AUTONOMOUS mode -- will auto-publish once due).
-// Never publishes directly -- that's publishPost's job, called separately
-// by the scheduler once a post's scheduledFor time arrives.
-export async function generateNewPostPair(): Promise<{ groupId: string } | null> {
+// sharing a groupId and the same images but platform-tailored captions)
+// and lands them either as DRAFT (REVIEW_QUEUE mode -- needs a human to
+// approve before anything is scheduled) or SCHEDULED (AUTONOMOUS mode --
+// will auto-publish once due). Never publishes directly -- that's
+// publishPost's job, called separately once a post's scheduledFor arrives.
+export async function generateNewPostPair(pillarOverride?: string): Promise<{ groupId: string } | null> {
+  return withGenerationLock(() => generateNewPostPairUnlocked(pillarOverride));
+}
+
+async function generateNewPostPairUnlocked(pillarOverride?: string): Promise<{ groupId: string } | null> {
   const settings = await getOrCreateSettings();
   if (!settings.enabled) return null;
 
   const totalPairs = await db.socialPost.count({ where: { deletedAt: null, platform: "INSTAGRAM" } });
-  const pillar = nextPillar(totalPairs);
-  const config = PILLAR_CONFIG[pillar];
+  const pillar = (pillarOverride as Parameters<typeof planPost>[0]) || nextPillar(totalPairs);
+  const plan = planPost(pillar);
   const knowledge = await getKnowledge();
 
-  // Generated once and shared across both platforms -- Instagram's caption
-  // rules (hard truncation after ~12 words) are the stricter constraint, so
-  // content written for Instagram works for Facebook too without a second,
-  // costlier generation pass.
-  const generated = await generateValidatedPost({
-    pillar,
-    platform: "INSTAGRAM",
-    type: config.preferredType,
-    knowledge: knowledge.content,
-  });
+  const generated = await generateValidatedPost({ pillar, plan, knowledge: knowledge.content });
 
-  const images: { assetId: string; source: "AI_PHOTO" | "TEMPLATE"; altText: string; order: number }[] = [];
+  const images: { assetId: string; source: SocialImageSource; altText: string; order: number }[] = [];
   for (let i = 0; i < generated.slides.length; i++) {
     const slide = generated.slides[i];
     const image = await generateAndStoreImage({
-      imageStyle: config.imageStyle,
+      imageStyle: plan.slideImageStyles[i],
       imagePrompt: slide.imagePrompt,
       headline: slide.headline,
       body: slide.body,
@@ -65,20 +75,24 @@ export async function generateNewPostPair(): Promise<{ groupId: string } | null>
   }
 
   const groupId = crypto.randomUUID();
-  const platforms: SocialPlatform[] = ["INSTAGRAM", "FACEBOOK"];
   const autonomous = settings.publishingMode === "AUTONOMOUS";
 
-  for (const platform of platforms) {
+  const perPlatform: Record<SocialPlatform, { caption: string; hashtags: string[] }> = {
+    INSTAGRAM: { caption: generated.instagramCaption, hashtags: generated.instagramHashtags },
+    FACEBOOK: { caption: generated.facebookCaption, hashtags: generated.facebookHashtags },
+  };
+
+  for (const platform of Object.keys(perPlatform) as SocialPlatform[]) {
     await db.socialPost.create({
       data: {
         groupId,
         platform,
-        type: config.preferredType,
+        type: plan.type,
         pillar,
         status: autonomous ? "SCHEDULED" : "DRAFT",
         scheduledFor: autonomous ? new Date(Date.now() + AUTONOMOUS_PUBLISH_DELAY_MS) : null,
-        caption: generated.caption,
-        hashtags: generated.hashtags,
+        caption: perPlatform[platform].caption,
+        hashtags: perPlatform[platform].hashtags,
         images: {
           create: images.map((img) => ({
             order: img.order,
