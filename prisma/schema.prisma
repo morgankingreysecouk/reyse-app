@@ -329,6 +329,23 @@ model SocialSettings {
   @@map("ra_social_settings")
 }
 
+// Singleton settings row for Talk to Rey's spoken voice. Kokoro-82M (the
+// DeepInfra TTS model this feature already uses) has no pitch/tone knobs --
+// the only real controls are which built-in voice to use, an optional
+// equal-weight blend of two voices (confirmed-working "voiceA+voiceB"
+// syntax), and speaking speed. blendVoice is null for a single voice.
+model TalkSettings {
+  id String @id @default("singleton")
+
+  voice      String  @default("bm_lewis")
+  blendVoice String?
+  speed      Float   @default(1.0)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("ra_talk_settings")
+}
+
 // Generic AI/paid-API cost tracking, reused across features -- the standing
 // Feature Build Process requires every cost-incurring feature to log here;
 // this is the first feature to actually build the table (flagged as a gap

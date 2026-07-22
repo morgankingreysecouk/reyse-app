@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { db } from "@/lib/db";
+import { speak } from "@/lib/talk/speak";
 
 // Needs a real Node process (spawns the Agent SDK's native binary as a
 // subprocess), not the edge runtime.
@@ -10,7 +12,6 @@ export const maxDuration = 60;
 const VAULT_DIR = path.join(process.cwd(), "vault");
 
 const GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
-const DEEPINFRA_TTS_URL = "https://api.deepinfra.com/v1/openai/audio/speech";
 
 // Everything Rey says here gets spoken aloud through text-to-speech, not
 // read as text -- same spoken-discipline instruction voice-line's brain.py
@@ -71,26 +72,6 @@ async function think(userText: string): Promise<string> {
   return resultText;
 }
 
-async function speak(text: string): Promise<Buffer> {
-  const res = await fetch(DEEPINFRA_TTS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.DEEPINFRA_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "hexgrad/Kokoro-82M",
-      input: text,
-      voice: process.env.VOICE_LINE_KOKORO_VOICE || "bm_lewis",
-      response_format: "mp3",
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Speaking failed: DeepInfra returned ${res.status} ${await res.text()}`);
-  }
-  return Buffer.from(await res.arrayBuffer());
-}
-
 export async function POST(request: Request) {
   const form = await request.formData();
   const audio = form.get("audio");
@@ -108,7 +89,13 @@ export async function POST(request: Request) {
     }
 
     const reply = await think(transcript);
-    const audioBuffer = await speak(reply);
+    const settings = await db.talkSettings.findUnique({ where: { id: "singleton" } });
+    const audioBuffer = await speak(
+      reply,
+      settings?.voice ?? "bm_lewis",
+      settings?.blendVoice ?? null,
+      settings?.speed ?? 1.0,
+    );
 
     return NextResponse.json({
       transcript,
