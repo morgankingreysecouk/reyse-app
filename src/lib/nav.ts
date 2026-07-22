@@ -6,6 +6,7 @@ import {
   Users,
   BarChart3,
   Settings,
+  Mic,
   type LucideIcon,
 } from "lucide-react";
 
@@ -23,6 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "Enquiries", href: "/admin/enquiries", icon: Inbox },
   { label: "Live Chat", href: "/admin/live-chat", icon: MessageCircle },
+  { label: "Talk to Rey", href: "/admin/talk", icon: Mic },
   { label: "Social", href: "/admin/social", icon: Camera },
   { label: "Leads", href: "/admin/leads", icon: Users },
   { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },

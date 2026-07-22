@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# reyse-vault, cloned in at build time by scripts/clone-vault.sh
+/vault/
+
 # production
 /build
 

@@ -4,12 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "bash scripts/clone-vault.sh",
     "build": "next build",
     "start": "prisma migrate deploy && next start",
     "lint": "eslint",
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.217",
     "@anthropic-ai/sdk": "^0.112.5",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/space-grotesk": "^5.3.0",
