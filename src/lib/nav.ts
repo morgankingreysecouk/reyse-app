@@ -21,7 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
   { label: "Enquiries", href: "/enquiries", icon: Inbox },
   { label: "Live Chat", href: "/live-chat", icon: MessageCircle },
-  { label: "Instagram", href: "/instagram", icon: Camera },
+  { label: "Social", href: "/instagram", icon: Camera },
   { label: "Leads", href: "/leads", icon: Users },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
