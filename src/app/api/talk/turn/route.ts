@@ -50,6 +50,15 @@ async function think(userText: string): Promise<string> {
       cwd: VAULT_DIR,
       systemPrompt: { type: "preset", preset: "claude_code", append: SPOKEN_DISCIPLINE },
       resume: sessionId,
+      // reyse-app runs other features (e.g. Instagram automation) that may
+      // legitimately need a metered ANTHROPIC_API_KEY of their own. The
+      // Agent SDK's credential resolution is environment-based, so rather
+      // than requiring the whole app to go without that key, scope it out
+      // of just this subprocess -- `env` here fully replaces the spawned
+      // process's environment (it doesn't merge with process.env), so
+      // spread process.env first and drop only the one key that would
+      // otherwise silently override the subscription-based auth.
+      env: { ...process.env, ANTHROPIC_API_KEY: undefined },
     },
   })) {
     if (message.type === "system" && message.subtype === "init") {
@@ -83,20 +92,6 @@ async function speak(text: string): Promise<Buffer> {
 }
 
 export async function POST(request: Request) {
-  // Same safety check as voice-line's main.py: an ANTHROPIC_API_KEY anywhere
-  // in the environment silently overrides the subscription-based OAuth auth
-  // and switches to pay-per-token billing. Refuse rather than let that
-  // happen unnoticed.
-  if (process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      {
-        error:
-          "ANTHROPIC_API_KEY is set on this server -- refusing to run. It would silently switch billing to pay-per-token instead of the subscription. Remove it from Railway's environment variables.",
-      },
-      { status: 500 },
-    );
-  }
-
   const form = await request.formData();
   const audio = form.get("audio");
   if (!(audio instanceof Blob)) {
