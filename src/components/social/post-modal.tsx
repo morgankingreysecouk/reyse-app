@@ -1,34 +1,68 @@
 "use client";
 
 import { useState } from "react";
-import { X, Check, XCircle, Send, Undo2, Trash2, RotateCcw, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Check, XCircle, Send, Undo2, Trash2, RotateCcw, ChevronLeft, ChevronRight, Eye, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PillarBadge, PlatformBadge, StatusBadge } from "./badges";
+import { InstagramPreview, FacebookPreview } from "./platform-preview";
+import { nextOptimalTime } from "@/lib/social/postingTime";
 import type { SocialPost, SocialPostImage } from "@/generated/prisma/client";
+
+// datetime-local inputs want "YYYY-MM-DDTHH:mm" in the browser's local
+// time -- Date#toISOString gives UTC, so this reads the local field values
+// off the Date object directly instead.
+function toDatetimeLocalValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 type PostWithImages = SocialPost & { images: SocialPostImage[] };
 
+// posts is the cross-posted group (1-2 rows sharing a groupId) -- a small
+// platform tab switcher lets Morgan review/edit/act on each platform's
+// version independently, since they publish independently too.
 export function PostModal({
-  post: initial,
+  posts,
   onClose,
   onChanged,
 }: {
-  post: PostWithImages;
+  posts: PostWithImages[];
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [post, setPost] = useState(initial);
-  const [caption, setCaption] = useState(initial.caption);
-  const [hashtagText, setHashtagText] = useState(initial.hashtags.join(" "));
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [group, setGroup] = useState(posts);
+  const post = group[activeIndex];
+
+  const [caption, setCaption] = useState(post.caption);
+  const [hashtagText, setHashtagText] = useState(post.hashtags.join(" "));
   const [scheduledFor, setScheduledFor] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [slideIndex, setSlideIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"edit" | "preview">("preview");
+
+  // Switching platform tabs re-syncs the edit fields to that post's own
+  // caption/hashtags rather than leaving the previous tab's draft behind --
+  // done directly in the handler, not a useEffect, since setState-in-effect
+  // for state that's really just a derived reset is exactly the pattern
+  // React's own rules flag as an unnecessary render cascade.
+  function selectPlatform(index: number) {
+    setActiveIndex(index);
+    setCaption(group[index].caption);
+    setHashtagText(group[index].hashtags.join(" "));
+    setSlideIndex(0);
+    setError(null);
+  }
 
   const isTrashed = !!post.deletedAt;
   const dirty = caption !== post.caption || hashtagText !== post.hashtags.join(" ");
+
+  function updatePostInGroup(updated: SocialPost) {
+    setGroup((prev) => prev.map((p, i) => (i === activeIndex ? { ...p, ...updated } : p)));
+  }
 
   async function patch(body: Record<string, unknown>) {
     setBusy(true);
@@ -44,7 +78,7 @@ export function PostModal({
         setError(json.error ?? "Something went wrong");
         return false;
       }
-      setPost(json.post);
+      updatePostInGroup(json.post);
       onChanged();
       return true;
     } catch {
@@ -83,12 +117,7 @@ export function PostModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="font-display text-base font-semibold text-ink mr-1">Post</h2>
-            <PlatformBadge platform={post.platform} />
             <PillarBadge pillar={post.pillar} />
-            <StatusBadge status={post.status} />
-            <span className="text-[11px] text-ink-muted">
-              Cross-posted -- edits here only affect this platform&apos;s version
-            </span>
             {isTrashed && <span className="text-xs text-danger font-medium">In Trash</span>}
           </div>
           <button onClick={onClose} className="text-ink-muted hover:text-ink" aria-label="Close">
@@ -96,43 +125,107 @@ export function PostModal({
           </button>
         </div>
 
+        {group.length > 1 && (
+          <div className="flex items-center gap-1.5 px-5 pt-3 shrink-0">
+            {group.map((p, i) => (
+              <button
+                key={p.id}
+                onClick={() => selectPlatform(i)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium transition-colors ${
+                  i === activeIndex ? "border-indigo bg-indigo/10" : "border-border-strong text-ink-muted hover:text-ink"
+                }`}
+              >
+                <PlatformBadge platform={p.platform} />
+                <StatusBadge status={p.status} />
+              </button>
+            ))}
+          </div>
+        )}
+        {group.length === 1 && (
+          <div className="flex items-center gap-2 px-5 pt-3 shrink-0">
+            <PlatformBadge platform={post.platform} />
+            <StatusBadge status={post.status} />
+          </div>
+        )}
+
         <div className="overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-5 p-5">
           <div className="flex flex-col gap-2">
-            <div className="relative aspect-[4/5] rounded-lg overflow-hidden bg-surface-raised border border-border-strong">
-              {activeImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={`/api/public/social/assets/${activeImage.assetId}`}
-                  alt={activeImage.altText}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-ink-muted text-sm">No image</div>
-              )}
+            <div className="flex items-center justify-between">
+              <div className="inline-flex rounded-md border border-border-strong overflow-hidden">
+                <button
+                  onClick={() => setViewMode("preview")}
+                  className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium ${
+                    viewMode === "preview" ? "bg-indigo/10 text-indigo" : "text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  <Eye size={12} /> Preview
+                </button>
+                <button
+                  onClick={() => setViewMode("edit")}
+                  className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium border-l border-border-strong ${
+                    viewMode === "edit" ? "bg-indigo/10 text-indigo" : "text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  <Pencil size={12} /> Raw image
+                </button>
+              </div>
               {post.images.length > 1 && (
-                <>
+                <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => setSlideIndex((i) => Math.max(0, i - 1))}
                     disabled={slideIndex === 0}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1.5 disabled:opacity-30"
+                    className="text-ink-muted disabled:opacity-30 hover:text-ink"
                     aria-label="Previous slide"
                   >
                     <ChevronLeft size={16} />
                   </button>
+                  <span className="text-[11px] text-ink-muted">
+                    {slideIndex + 1} / {post.images.length}
+                  </span>
                   <button
                     onClick={() => setSlideIndex((i) => Math.min(post.images.length - 1, i + 1))}
                     disabled={slideIndex === post.images.length - 1}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1.5 disabled:opacity-30"
+                    className="text-ink-muted disabled:opacity-30 hover:text-ink"
                     aria-label="Next slide"
                   >
                     <ChevronRight size={16} />
                   </button>
-                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-[11px] px-2 py-0.5 rounded-full">
-                    {slideIndex + 1} / {post.images.length}
-                  </div>
-                </>
+                </div>
               )}
             </div>
+
+            {viewMode === "preview" ? (
+              post.platform === "INSTAGRAM" ? (
+                <InstagramPreview
+                  imageUrl={activeImage ? `/api/public/social/assets/${activeImage.assetId}` : null}
+                  caption={caption}
+                  hashtags={hashtagText.split(/\s+/).filter(Boolean).map((h) => h.replace(/^#/, ""))}
+                  slideCount={post.images.length}
+                  slideIndex={slideIndex}
+                />
+              ) : (
+                <FacebookPreview
+                  imageUrl={activeImage ? `/api/public/social/assets/${activeImage.assetId}` : null}
+                  caption={caption}
+                  hashtags={hashtagText.split(/\s+/).filter(Boolean).map((h) => h.replace(/^#/, ""))}
+                  slideCount={post.images.length}
+                  slideIndex={slideIndex}
+                />
+              )
+            ) : (
+              <div className="relative aspect-[4/5] rounded-lg overflow-hidden bg-surface-raised border border-border-strong">
+                {activeImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/api/public/social/assets/${activeImage.assetId}`}
+                    alt={activeImage.altText}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-ink-muted text-sm">No image</div>
+                )}
+              </div>
+            )}
             {activeImage && <p className="text-[11px] text-ink-muted px-1">Alt text: {activeImage.altText}</p>}
             {post.status === "PUBLISHED" && post.externalPostId && (
               <p className="text-[11px] text-ink-muted px-1">Live post ID: {post.externalPostId}</p>
@@ -147,7 +240,9 @@ export function PostModal({
 
           <div className="flex flex-col gap-4">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted mb-1.5">Caption</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted mb-1.5">
+                {post.platform === "INSTAGRAM" ? "Instagram" : "Facebook"} caption
+              </p>
               <textarea
                 rows={8}
                 value={caption}
@@ -185,6 +280,14 @@ export function PostModal({
                   />
                   <Button
                     size="sm"
+                    variant="secondary"
+                    onClick={() => setScheduledFor(toDatetimeLocalValue(nextOptimalTime(new Date())))}
+                    disabled={busy}
+                  >
+                    Best time
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={() =>
                       patch({ action: "approve", scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : undefined })
                     }
@@ -193,7 +296,10 @@ export function PostModal({
                     <Check size={14} /> Approve &amp; schedule
                   </Button>
                 </div>
-                <p className="text-[11px] text-ink-muted">Leave the date blank to schedule for right away.</p>
+                <p className="text-[11px] text-ink-muted">
+                  Leave the date blank to schedule for right away, or use &quot;Best time&quot; to pick the next good UK
+                  engagement window (late morning, lunch, or evening).
+                </p>
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="secondary" onClick={() => patch({ action: "publish_now" })} disabled={busy}>
                     <Send size={14} /> Publish now
