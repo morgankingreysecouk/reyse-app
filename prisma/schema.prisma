@@ -329,6 +329,167 @@ model SocialSettings {
   @@map("ra_social_settings")
 }
 
+// Lead Generation -- finds prospective clients (independent UK holiday-let
+// owners with their own direct-booking website, per IDEAL_CUSTOMER_PROFILE.md
+// carried over from the old backend) via two search channels, enriches their
+// contact details, and verifies those details actually work before they're
+// usable. Built 30 July 2026, replacing the old `reyse` backend's version.
+//
+// Prior art (old `reyse` repo, super-admin/lead-gen) had real, documented
+// weaknesses this rebuild fixes directly:
+//   - Dedup was almost nonexistent: uniqueness was on the raw URL string, so
+//     http/https/www variants of the same site created separate rows, and
+//     nothing stopped a business resurfacing (and re-costing an AI
+//     classification call) in a later search. Here, `domain` is the unique
+//     key, normalized (no protocol/www/trailing slash) before every lookup,
+//     and a domain that has EVER been seen -- found, contacted, or manually
+//     excluded -- is checked BEFORE spending a search/classification call,
+//     not after.
+//   - `status`/`enrichmentStatus` were plain strings with no DB-level
+//     guarantee of validity. Here they're real enums, same pattern as every
+//     other model in this schema.
+//   - The old "blocked contacts" list was advisory only -- it didn't filter
+//     CSV export despite the UI claiming it did. Here, `excluded` lives
+//     directly on the Lead row itself (one source of truth, not two tables
+//     that can drift out of sync) and every read path (list, export) filters
+//     on it.
+//   - Nothing was ever hard-deleted in spirit, but the old schema didn't
+//     enforce that -- same soft-delete-via-flag pattern as Enquiry/SocialPost
+//     here: `excluded` marks a lead as permanently out of rotation without
+//     losing the dedup memory a hard delete would lose.
+enum LeadClassification {
+  INDEPENDENT // genuine independent owner-run holiday-let business
+  PLATFORM // Airbnb/Booking.com/Sykes/etc. or an agency-branded multi-owner platform
+  IRRELEVANT // reachable site but not a holiday-let business at all
+  ERROR // homepage unreachable/timed out -- unclassified, not the same as irrelevant
+
+  @@map("ra_lead_classification")
+}
+
+enum LeadSource {
+  PLACES // Google Places API -- real geo/business-listing search
+  CUSTOM_SEARCH // Google Custom Search JSON API -- broader web search
+  MANUAL
+
+  @@map("ra_lead_source")
+}
+
+enum LeadEnrichmentStatus {
+  PENDING // not yet attempted
+  COMPLETE // phone, email, and instagram all found
+  PARTIAL // 1-2 of phone/email/instagram found
+  NOT_FOUND // homepage fetched fine, nothing usable found
+  FAILED // homepage itself was unreachable
+
+  @@map("ra_lead_enrichment_status")
+}
+
+// Deliberately three states, not a boolean -- the old tool's MX-only check
+// couldn't distinguish "definitely works" from "domain accepts everything,
+// might not actually have this mailbox" (a catch-all domain). RISKY is that
+// honest middle state: MX exists but a live SMTP deliverability probe either
+// came back ambiguous or couldn't run at all (see verifyEmail.ts -- some
+// hosts block outbound port 25, in which case this never claims VALID on
+// probe results it doesn't actually have).
+enum LeadEmailVerification {
+  UNVERIFIED
+  VALID
+  RISKY
+  INVALID
+
+  @@map("ra_lead_email_verification")
+}
+
+enum LeadInstagramVerification {
+  UNVERIFIED
+  VALID
+  INVALID
+
+  @@map("ra_lead_instagram_verification")
+}
+
+model LeadCollection {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  leads Lead[]
+
+  @@map("ra_lead_collection")
+}
+
+model Lead {
+  id String @id @default(cuid())
+
+  // Normalized: lowercase host, no protocol, no leading "www.", no trailing
+  // slash/path. This -- not the raw URL -- is the permanent dedup key, and
+  // it's checked before any paid/metered call is made for a candidate, not
+  // just before the DB write.
+  domain String @unique
+  url    String // canonical https://domain for display/linking
+  name   String
+
+  location String?
+  source   LeadSource
+
+  classification       LeadClassification
+  classificationReason String?
+
+  phone               String?
+  email               String?
+  instagram           String?
+  linkedin            String?
+  facebook            String?
+  contactName         String?
+  personalisationLine String?
+  enrichmentStatus    LeadEnrichmentStatus @default(PENDING)
+  enrichedAt          DateTime?
+
+  emailVerification     LeadEmailVerification     @default(UNVERIFIED)
+  emailVerifiedAt       DateTime?
+  instagramVerification LeadInstagramVerification @default(UNVERIFIED)
+  instagramVerifiedAt   DateTime?
+
+  // Permanent, not a second table -- true the moment a lead is manually
+  // rejected, found to be a platform/irrelevant, or marked contacted.
+  // Filters every list/export read path. Row is never hard-deleted so the
+  // domain dedup memory never resets.
+  excluded       Boolean @default(false)
+  excludedReason String?
+
+  collectionId String?
+  collection   LeadCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+
+  exportedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classification])
+  @@index([excluded])
+  @@index([email])
+  @@index([instagram])
+  @@index([collectionId])
+  @@index([createdAt])
+  @@map("ra_lead")
+}
+
+// One row per calendar date -- tracks Google Places/Custom Search call
+// volume against their free-tier daily limits (Custom Search: 100/day free;
+// Places: metered against the $200/month Google Cloud credit). Separate from
+// AiUsageLog below, which is Claude-call cost specifically; this is
+// external-API call *count*, not a cost figure, since neither Google API's
+// cost-per-call is worth hardcoding here the way Claude's token pricing is.
+model LeadSearchUsage {
+  id            String @id @default(cuid())
+  date          String @unique // "YYYY-MM-DD"
+  placesCalls   Int    @default(0)
+  cseCalls      Int    @default(0)
+  classifyCalls Int    @default(0)
+
+  @@map("ra_lead_search_usage")
+}
+
 // Generic AI/paid-API cost tracking, reused across features -- the standing
 // Feature Build Process requires every cost-incurring feature to log here;
 // this is the first feature to actually build the table (flagged as a gap
