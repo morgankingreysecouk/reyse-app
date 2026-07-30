@@ -18,7 +18,7 @@ How it works: the host tells Reyse about their property (amenities, house rules,
 
 Data handling: guest conversations and property details are not used to train public AI models.
 
-Getting started: fill in the contact form on the site, or ask this chat to pass details along. Morgan personally calls within 1 business day and can have a host live within 24 hours.
+Getting started: fill in the contact form on the site, or ask this chat to pass details along. Someone from our team calls within 1 business day and can have a host live within 24 hours.
 
 Contact: morgan.king@reyse.co.uk. UK-based business, GBP pricing.
 `.trim();
