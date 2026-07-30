@@ -1,5 +1,3 @@
-Loaded Prisma config from prisma.config.ts.
-
 -- CreateEnum
 CREATE TYPE "ra_chat_role" AS ENUM ('USER', 'ASSISTANT', 'OPERATOR');
 
