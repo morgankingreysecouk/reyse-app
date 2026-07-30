@@ -7,6 +7,7 @@ const BANNED_PHRASES = [
   "game-changer",
   "game changer",
   "revolutioniz",
+  "revolutionary",
   "unlock your",
   "unleash",
   "in today's fast-paced world",
@@ -14,14 +15,42 @@ const BANNED_PHRASES = [
   "take it to the next level",
   "dive into",
   "seamless",
+  "supercharge",
+  "streamline your",
+  "cutting-edge",
+  "look no further",
+  "buckle up",
+  "let's dive in",
+  "picture this",
+  "in the world of",
+  "navigate the",
 ];
+
+// Generic, low-effort CTAs the system prompt already discourages -- checked
+// here too rather than trusting the prompt alone, since a specific,
+// concrete CTA measurably outperforms these in the research this pillar
+// system is grounded on.
+const GENERIC_CTA_PHRASES = ["check out our website", "visit our website", "learn more today", "click here"];
+
+// Instagram captions have never supported clickable links (the platform's
+// own long-standing limitation, distinct from Facebook where a caption
+// link really is clickable) -- a caption telling someone to "click the
+// link" or "click below" on Instagram is telling them to do something the
+// app won't let them do. "link in bio" is the correct, actually-functional
+// phrasing there, so it's deliberately not flagged.
+const INSTAGRAM_DEAD_LINK_PHRASES = ["click the link", "click below", "link below", "click the url"];
 
 export interface ContentIssue {
   field: string;
   message: string;
 }
 
-export function validateCaption(caption: string, hashtags: string[]): ContentIssue[] {
+export function validateCaption(
+  caption: string,
+  hashtags: string[],
+  hashtagRange: { min: number; max: number } = { min: 3, max: 5 },
+  platform?: "INSTAGRAM" | "FACEBOOK",
+): ContentIssue[] {
   const issues: ContentIssue[] = [];
 
   if (caption.includes("—")) {
@@ -33,8 +62,11 @@ export function validateCaption(caption: string, hashtags: string[]): ContentIss
   if (caption.length > 2200) {
     issues.push({ field: "caption", message: `${caption.length} chars, exceeds Instagram's 2200 cap` });
   }
-  if (hashtags.length < 3 || hashtags.length > 5) {
-    issues.push({ field: "hashtags", message: `${hashtags.length} hashtags, must be 3-5` });
+  if (hashtags.length < hashtagRange.min || hashtags.length > hashtagRange.max) {
+    issues.push({
+      field: "hashtags",
+      message: `${hashtags.length} hashtags, must be ${hashtagRange.min}-${hashtagRange.max}`,
+    });
   }
   for (const tag of hashtags) {
     if (/\s/.test(tag) || tag.startsWith("#")) {
@@ -46,6 +78,21 @@ export function validateCaption(caption: string, hashtags: string[]): ContentIss
   for (const phrase of BANNED_PHRASES) {
     if (lowerCaption.includes(phrase)) {
       issues.push({ field: "caption", message: `contains banned AI-slop phrase "${phrase}"` });
+    }
+  }
+  for (const phrase of GENERIC_CTA_PHRASES) {
+    if (lowerCaption.includes(phrase)) {
+      issues.push({ field: "caption", message: `generic CTA "${phrase}" -- needs a specific, concrete call to action instead` });
+    }
+  }
+  if (platform === "INSTAGRAM") {
+    for (const phrase of INSTAGRAM_DEAD_LINK_PHRASES) {
+      if (lowerCaption.includes(phrase)) {
+        issues.push({
+          field: "caption",
+          message: `"${phrase}" -- Instagram captions can't contain clickable links, use "link in bio" instead`,
+        });
+      }
     }
   }
 
