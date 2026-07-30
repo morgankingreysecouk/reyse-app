@@ -1,23 +1,50 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Mic } from "lucide-react";
+import { Mic, Send } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 type TalkState = "idle" | "listening" | "thinking" | "speaking";
 
 const STATE_LABEL: Record<TalkState, string> = {
-  idle: "Hold to talk",
+  idle: "Hold to talk, or type below",
   listening: "Listening...",
   thinking: "Thinking...",
   speaking: "Speaking...",
 };
+
+// Plain module-level function, not a hook -- shared by the voice and typed
+// paths, both of which just await it with their own refs/setters. Keeping
+// the ref mutation here (outside any useCallback body) avoids the React
+// Compiler flagging "modifying a value passed as a hook argument".
+async function playTurnResponse(
+  res: Response,
+  audioElRef: React.RefObject<HTMLAudioElement | null>,
+  setTranscript: (v: string) => void,
+  setReply: (v: string) => void,
+  setState: (v: TalkState) => void,
+) {
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Something went wrong");
+
+  setTranscript(data.transcript);
+  setReply(data.reply);
+
+  const audioEl = audioElRef.current ?? new Audio();
+  audioElRef.current = audioEl;
+  audioEl.src = `data:audio/mpeg;base64,${data.audio}`;
+  audioEl.onended = () => setState("idle");
+  setState("speaking");
+  await audioEl.play();
+}
 
 export default function TalkPage() {
   const [state, setState] = useState<TalkState>("idle");
   const [transcript, setTranscript] = useState("");
   const [reply, setReply] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [textInput, setTextInput] = useState("");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -79,19 +106,7 @@ export default function TalkPage() {
         const form = new FormData();
         form.append("audio", blob, "turn.webm");
         const res = await fetch("/api/talk/turn", { method: "POST", body: form });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Something went wrong");
-
-        setTranscript(data.transcript);
-        setReply(data.reply);
-
-        const audioSrc = `data:audio/mpeg;base64,${data.audio}`;
-        const audioEl = audioElRef.current ?? new Audio();
-        audioElRef.current = audioEl;
-        audioEl.src = audioSrc;
-        audioEl.onended = () => setState("idle");
-        setState("speaking");
-        await audioEl.play();
+        await playTurnResponse(res, audioElRef, setTranscript, setReply, setState);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
         setState("idle");
@@ -99,6 +114,28 @@ export default function TalkPage() {
     };
     recorder.stop();
   }, []);
+
+  const sendText = useCallback(async () => {
+    const text = textInput.trim();
+    if (!text || state === "thinking") return;
+
+    if (state === "speaking") stopPlayback();
+
+    setError(null);
+    setTextInput("");
+    setState("thinking");
+    try {
+      const res = await fetch("/api/talk/turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      await playTurnResponse(res, audioElRef, setTranscript, setReply, setState);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+      setState("idle");
+    }
+  }, [textInput, state, stopPlayback]);
 
   return (
     <div className="h-full flex items-center justify-center">
@@ -134,6 +171,27 @@ export default function TalkPage() {
         <p className="text-sm text-ink-muted leading-relaxed mb-4">
           {STATE_LABEL[state]}
         </p>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            sendText();
+          }}
+          className="flex gap-2 mb-4"
+        >
+          <input
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Or type a message..."
+            disabled={state === "thinking"}
+            className="flex-1 h-10 px-3 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none focus:border-indigo disabled:opacity-50"
+          />
+          <Button type="submit" size="md" disabled={!textInput.trim() || state === "thinking"}>
+            <Send size={16} />
+          </Button>
+        </form>
+
         {transcript && (
           <p className="text-xs text-ink-faint mb-1">You: {transcript}</p>
         )}

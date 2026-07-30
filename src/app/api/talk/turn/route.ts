@@ -107,14 +107,42 @@ async function think(userText: string): Promise<string> {
   return resultText;
 }
 
+async function respondTo(transcript: string) {
+  const reply = await think(transcript);
+  const settings = await db.talkSettings.findUnique({ where: { id: "singleton" } });
+  const audioBuffer = await speak(
+    reply,
+    settings?.voice ?? "bm_lewis",
+    settings?.blendVoice ?? null,
+    settings?.speed ?? 1.0,
+  );
+
+  return NextResponse.json({
+    transcript,
+    reply,
+    audio: audioBuffer.toString("base64"),
+  });
+}
+
 export async function POST(request: Request) {
-  const form = await request.formData();
-  const audio = form.get("audio");
-  if (!(audio instanceof Blob)) {
-    return NextResponse.json({ error: "No audio provided" }, { status: 400 });
-  }
+  const contentType = request.headers.get("content-type") ?? "";
 
   try {
+    if (contentType.includes("application/json")) {
+      const body = (await request.json()) as { text?: unknown };
+      const text = typeof body.text === "string" ? body.text.trim() : "";
+      if (!text) {
+        return NextResponse.json({ error: "No message provided" }, { status: 400 });
+      }
+      return await respondTo(text);
+    }
+
+    const form = await request.formData();
+    const audio = form.get("audio");
+    if (!(audio instanceof Blob)) {
+      return NextResponse.json({ error: "No audio provided" }, { status: 400 });
+    }
+
     const transcript = await transcribe(audio);
     if (!transcript) {
       return NextResponse.json(
@@ -122,21 +150,7 @@ export async function POST(request: Request) {
         { status: 422 },
       );
     }
-
-    const reply = await think(transcript);
-    const settings = await db.talkSettings.findUnique({ where: { id: "singleton" } });
-    const audioBuffer = await speak(
-      reply,
-      settings?.voice ?? "bm_lewis",
-      settings?.blendVoice ?? null,
-      settings?.speed ?? 1.0,
-    );
-
-    return NextResponse.json({
-      transcript,
-      reply,
-      audio: audioBuffer.toString("base64"),
-    });
+    return await respondTo(transcript);
   } catch (err) {
     console.error("Talk turn failed:", err);
     return NextResponse.json(
