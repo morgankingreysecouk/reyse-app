@@ -9,5 +9,8 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { startSocialScheduler } = await import("@/lib/social/scheduler");
     startSocialScheduler();
+
+    const { startMailScheduler } = await import("@/lib/mail/scheduler");
+    startMailScheduler();
   }
 }
