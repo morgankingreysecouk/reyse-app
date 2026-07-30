@@ -4,6 +4,7 @@ import { nextPillar, planPost } from "./pillars";
 import { generateValidatedPost } from "./captionGenerator";
 import { generateAndStoreImage } from "./imageGenerator";
 import { TEMPLATE_LAYOUTS } from "./templateRenderer";
+import { nextOptimalTime } from "./postingTime";
 import { publishToInstagram, publishToFacebook } from "./graphApi";
 import type { SocialPlatform, SocialImageSource } from "@/generated/prisma/client";
 
@@ -97,7 +98,11 @@ async function generateNewPostPairUnlocked(pillarOverride?: string): Promise<{ g
         type: plan.type,
         pillar,
         status: autonomous ? "SCHEDULED" : "DRAFT",
-        scheduledFor: autonomous ? new Date(Date.now() + AUTONOMOUS_PUBLISH_DELAY_MS) : null,
+        // Autonomous posts land on the next real engagement window (late
+        // morning / lunch / evening UK time) after the safety buffer, not
+        // just "10 minutes after generation" regardless of what time that
+        // happens to be -- a post generated at 3am shouldn't publish at 3am.
+        scheduledFor: autonomous ? nextOptimalTime(new Date(Date.now() + AUTONOMOUS_PUBLISH_DELAY_MS)) : null,
         caption: perPlatform[platform].caption,
         hashtags: perPlatform[platform].hashtags,
         images: {

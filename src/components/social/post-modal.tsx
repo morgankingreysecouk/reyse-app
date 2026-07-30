@@ -5,7 +5,16 @@ import { X, Check, XCircle, Send, Undo2, Trash2, RotateCcw, ChevronLeft, Chevron
 import { Button } from "@/components/ui/button";
 import { PillarBadge, PlatformBadge, StatusBadge } from "./badges";
 import { InstagramPreview, FacebookPreview } from "./platform-preview";
+import { nextOptimalTime } from "@/lib/social/postingTime";
 import type { SocialPost, SocialPostImage } from "@/generated/prisma/client";
+
+// datetime-local inputs want "YYYY-MM-DDTHH:mm" in the browser's local
+// time -- Date#toISOString gives UTC, so this reads the local field values
+// off the Date object directly instead.
+function toDatetimeLocalValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 type PostWithImages = SocialPost & { images: SocialPostImage[] };
 
@@ -271,6 +280,14 @@ export function PostModal({
                   />
                   <Button
                     size="sm"
+                    variant="secondary"
+                    onClick={() => setScheduledFor(toDatetimeLocalValue(nextOptimalTime(new Date())))}
+                    disabled={busy}
+                  >
+                    Best time
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={() =>
                       patch({ action: "approve", scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : undefined })
                     }
@@ -279,7 +296,10 @@ export function PostModal({
                     <Check size={14} /> Approve &amp; schedule
                   </Button>
                 </div>
-                <p className="text-[11px] text-ink-muted">Leave the date blank to schedule for right away.</p>
+                <p className="text-[11px] text-ink-muted">
+                  Leave the date blank to schedule for right away, or use &quot;Best time&quot; to pick the next good UK
+                  engagement window (late morning, lunch, or evening).
+                </p>
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="secondary" onClick={() => patch({ action: "publish_now" })} disabled={busy}>
                     <Send size={14} /> Publish now
