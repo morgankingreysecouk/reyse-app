@@ -24,6 +24,22 @@ const STATUS_TABS: { value: SocialPostStatus | ""; label: string }[] = [
 
 const PILLAR_OPTIONS: SocialPillar[] = ["EDUCATION", "TIPS", "PROMOTION", "SOCIAL_PROOF", "BEHIND_THE_SCENES", "NEWS"];
 
+// Two rows share a groupId (one Instagram, one Facebook version of the
+// same content) -- grouped into one card instead of two visually-identical
+// cards, which Morgan flagged as reading like accidental duplication.
+// Instagram sorted first for a consistent default in the modal.
+function groupPosts(posts: PostWithImages[]): PostWithImages[][] {
+  const byGroup = new Map<string, PostWithImages[]>();
+  for (const post of posts) {
+    const group = byGroup.get(post.groupId) ?? [];
+    group.push(post);
+    byGroup.set(post.groupId, group);
+  }
+  return Array.from(byGroup.values()).map((group) =>
+    [...group].sort((a) => (a.platform === "INSTAGRAM" ? -1 : 1)),
+  );
+}
+
 export default function InstagramPage() {
   const [posts, setPosts] = useState<PostWithImages[]>([]);
   const [stats, setStats] = useState<SocialStats | null>(null);
@@ -35,7 +51,7 @@ export default function InstagramPage() {
   const [pillarFilter, setPillarFilter] = useState<SocialPillar | "">("");
   const [showTrash, setShowTrash] = useState(false);
 
-  const [selected, setSelected] = useState<PostWithImages | null>(null);
+  const [selected, setSelected] = useState<PostWithImages[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
@@ -183,15 +199,15 @@ export default function InstagramPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} onClick={() => setSelected(post)} />
+          {groupPosts(posts).map((group) => (
+            <PostCard key={group[0].groupId} posts={group} onClick={() => setSelected(group)} />
           ))}
         </div>
       )}
 
       {selected && (
         <PostModal
-          post={selected}
+          posts={selected}
           onClose={() => setSelected(null)}
           onChanged={load}
         />

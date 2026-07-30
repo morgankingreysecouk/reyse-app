@@ -8,18 +8,24 @@ import type { SocialPost, SocialPostImage } from "@/generated/prisma/client";
 
 type PostWithImages = SocialPost & { images: SocialPostImage[] };
 
+// posts is the cross-posted group (1-2 rows sharing a groupId) -- a small
+// platform tab switcher lets Morgan review/edit/act on each platform's
+// version independently, since they publish independently too.
 export function PostModal({
-  post: initial,
+  posts,
   onClose,
   onChanged,
 }: {
-  post: PostWithImages;
+  posts: PostWithImages[];
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [post, setPost] = useState(initial);
-  const [caption, setCaption] = useState(initial.caption);
-  const [hashtagText, setHashtagText] = useState(initial.hashtags.join(" "));
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [group, setGroup] = useState(posts);
+  const post = group[activeIndex];
+
+  const [caption, setCaption] = useState(post.caption);
+  const [hashtagText, setHashtagText] = useState(post.hashtags.join(" "));
   const [scheduledFor, setScheduledFor] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
   const [showRejectInput, setShowRejectInput] = useState(false);
@@ -27,8 +33,25 @@ export function PostModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Switching platform tabs re-syncs the edit fields to that post's own
+  // caption/hashtags rather than leaving the previous tab's draft behind --
+  // done directly in the handler, not a useEffect, since setState-in-effect
+  // for state that's really just a derived reset is exactly the pattern
+  // React's own rules flag as an unnecessary render cascade.
+  function selectPlatform(index: number) {
+    setActiveIndex(index);
+    setCaption(group[index].caption);
+    setHashtagText(group[index].hashtags.join(" "));
+    setSlideIndex(0);
+    setError(null);
+  }
+
   const isTrashed = !!post.deletedAt;
   const dirty = caption !== post.caption || hashtagText !== post.hashtags.join(" ");
+
+  function updatePostInGroup(updated: SocialPost) {
+    setGroup((prev) => prev.map((p, i) => (i === activeIndex ? { ...p, ...updated } : p)));
+  }
 
   async function patch(body: Record<string, unknown>) {
     setBusy(true);
@@ -44,7 +67,7 @@ export function PostModal({
         setError(json.error ?? "Something went wrong");
         return false;
       }
-      setPost(json.post);
+      updatePostInGroup(json.post);
       onChanged();
       return true;
     } catch {
@@ -83,18 +106,36 @@ export function PostModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="font-display text-base font-semibold text-ink mr-1">Post</h2>
-            <PlatformBadge platform={post.platform} />
             <PillarBadge pillar={post.pillar} />
-            <StatusBadge status={post.status} />
-            <span className="text-[11px] text-ink-muted">
-              Cross-posted -- edits here only affect this platform&apos;s version
-            </span>
             {isTrashed && <span className="text-xs text-danger font-medium">In Trash</span>}
           </div>
           <button onClick={onClose} className="text-ink-muted hover:text-ink" aria-label="Close">
             <X size={18} />
           </button>
         </div>
+
+        {group.length > 1 && (
+          <div className="flex items-center gap-1.5 px-5 pt-3 shrink-0">
+            {group.map((p, i) => (
+              <button
+                key={p.id}
+                onClick={() => selectPlatform(i)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium transition-colors ${
+                  i === activeIndex ? "border-indigo bg-indigo/10" : "border-border-strong text-ink-muted hover:text-ink"
+                }`}
+              >
+                <PlatformBadge platform={p.platform} />
+                <StatusBadge status={p.status} />
+              </button>
+            ))}
+          </div>
+        )}
+        {group.length === 1 && (
+          <div className="flex items-center gap-2 px-5 pt-3 shrink-0">
+            <PlatformBadge platform={post.platform} />
+            <StatusBadge status={post.status} />
+          </div>
+        )}
 
         <div className="overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-5 p-5">
           <div className="flex flex-col gap-2">
@@ -147,7 +188,9 @@ export function PostModal({
 
           <div className="flex flex-col gap-4">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted mb-1.5">Caption</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted mb-1.5">
+                {post.platform === "INSTAGRAM" ? "Instagram" : "Facebook"} caption
+              </p>
               <textarea
                 rows={8}
                 value={caption}

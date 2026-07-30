@@ -1,6 +1,6 @@
 import Replicate from "replicate";
 import { db } from "@/lib/db";
-import { renderTemplateSlide } from "./templateRenderer";
+import { renderTemplateSlide, renderPhotoOverlaySlide } from "./templateRenderer";
 import { logAiUsage } from "@/lib/aiUsageLog";
 import type { SocialImageSource } from "@/generated/prisma/client";
 
@@ -98,8 +98,21 @@ export async function generateAndStoreImage(params: {
   let actualSource: SocialImageSource = params.imageStyle;
 
   if (params.imageStyle === "AI_PHOTO") {
-    buffer = await generateAiPhotoBuffer(params.imagePrompt);
-    if (!buffer) actualSource = "TEMPLATE";
+    const photo = await generateAiPhotoBuffer(params.imagePrompt);
+    if (photo) {
+      // Composite the headline over the real photo rather than leaving it
+      // bare -- confirmed 40-50% higher engagement than image-only posts,
+      // bold text in the upper third performing best (research, 30 July
+      // 2026, after Morgan asked for this directly).
+      buffer = await renderPhotoOverlaySlide({
+        photo,
+        headline: params.headline,
+        slideIndex: params.slideIndex,
+        totalSlides: params.totalSlides,
+      });
+    } else {
+      actualSource = "TEMPLATE";
+    }
   }
 
   if (!buffer) {

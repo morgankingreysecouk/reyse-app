@@ -72,7 +72,7 @@ const OUTPUT_SCHEMA = {
 
 function formatNote(plan: PostPlan): string {
   if (plan.type === "CAROUSEL") {
-    return `Format: CAROUSEL, exactly ${plan.slideCount} slides. Slide 1 is the hook that stops the scroll (matches the caption's opening line) -- it will be rendered over a real photo, so its imagePrompt matters most. The final slide is the call to action. Keep one consistent idea per slide -- this should read as a complete, swipeable mini-guide, not a wall of text split arbitrarily.`;
+    return `Format: CAROUSEL, exactly ${plan.slideCount} slides. Slide 1 is the hook that stops the scroll (matches the caption's opening line) -- it will be rendered over a real photo, so its imagePrompt matters most. Use an open loop: slide 1 poses a question or names a problem it deliberately doesn't answer yet, and the answer/payoff lands a few slides later -- this is what actually drives swipe-through, not just "informative slides in order". The final slide is the call to action. Keep one consistent idea per slide -- this should read as a complete, swipeable mini-guide, not a wall of text split arbitrarily.`;
   }
   return "Format: SINGLE image post. Write exactly 1 slide entry.";
 }
