@@ -3,6 +3,7 @@ import { getKnowledge } from "@/lib/chatKnowledge";
 import { nextPillar, planPost } from "./pillars";
 import { generateValidatedPost } from "./captionGenerator";
 import { generateAndStoreImage } from "./imageGenerator";
+import { TEMPLATE_LAYOUTS } from "./templateRenderer";
 import { publishToInstagram, publishToFacebook } from "./graphApi";
 import type { SocialPlatform, SocialImageSource } from "@/generated/prisma/client";
 
@@ -60,6 +61,11 @@ async function generateNewPostPairUnlocked(pillarOverride?: string): Promise<{ g
 
   const generated = await generateValidatedPost({ pillar, plan, knowledge: knowledge.content });
 
+  // Picked once per post/carousel, not per slide -- a carousel's template
+  // slides need to look like one consistent design, while different posts
+  // across the feed should genuinely vary ("what variations can we get").
+  const layout = TEMPLATE_LAYOUTS[Math.floor(Math.random() * TEMPLATE_LAYOUTS.length)];
+
   const images: { assetId: string; source: SocialImageSource; altText: string; order: number }[] = [];
   for (let i = 0; i < generated.slides.length; i++) {
     const slide = generated.slides[i];
@@ -70,6 +76,7 @@ async function generateNewPostPairUnlocked(pillarOverride?: string): Promise<{ g
       body: slide.body,
       slideIndex: i,
       totalSlides: generated.slides.length,
+      layout,
     });
     images.push({ ...image, altText: slide.altText, order: i });
   }

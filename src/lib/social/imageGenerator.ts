@@ -1,6 +1,6 @@
 import Replicate from "replicate";
 import { db } from "@/lib/db";
-import { renderTemplateSlide, renderPhotoOverlaySlide } from "./templateRenderer";
+import { renderTemplateSlide, renderPhotoOverlaySlide, type TemplateLayout } from "./templateRenderer";
 import { logAiUsage } from "@/lib/aiUsageLog";
 import type { SocialImageSource } from "@/generated/prisma/client";
 
@@ -13,7 +13,15 @@ function readPngDimensions(buffer: Buffer): { width: number; height: number } {
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
 }
 
-const AI_MODEL = "black-forest-labs/flux-1.1-pro" as const;
+// Ultra + raw mode specifically (30 July 2026 research pass, after Morgan
+// pushed back hard on photo quality): raw mode is Black Forest Labs' own
+// toggle for candid, naturally-imperfect photography rather than the
+// smoother default look, at native 4MP -- the single biggest realism lever
+// available, ahead of prompt wording. Falls back to the non-ultra model
+// automatically if this one errors (e.g. an account without ultra access),
+// so a model-access mismatch degrades rather than blocks every post.
+const AI_MODEL = "black-forest-labs/flux-1.1-pro-ultra" as const;
+const AI_MODEL_FALLBACK = "black-forest-labs/flux-1.1-pro" as const;
 
 // Rotated per image (not one fixed lens for the whole feed) so the AI
 // photos have genuine visual variety rather than looking like one
@@ -26,17 +34,45 @@ const LENS_VARIANTS = [
   "shot on a Sony A7IV, 50mm lens, natural everyday framing",
   "shot on a Leica Q2, 28mm lens, wide establishing scene",
   "shot on a Canon R6, 85mm lens, softly blurred background, closer portrait framing",
+  "shot on a Ricoh GR III, 28mm lens, snapshot street-photography feel",
+  "shot on a Nikon Z8, 35mm lens, slightly overcast natural light",
+] as const;
+
+// Broadens WHERE and WHO's in frame -- the first real batch leaned heavily
+// on "kitchen table, laptop, mug of tea" for every scene regardless of
+// pillar. Rotated in alongside the lens so the feed reflects the real
+// spread of UK short-let properties (coastal, countryside, city) and
+// doesn't always centre a person.
+const SETTING_VARIANTS = [
+  "a converted coastal cottage near the Essex/Suffolk coast",
+  "a countryside barn conversion with exposed beams",
+  "a modern city-centre flat with large windows",
+  "a seaside terraced house with a small back garden",
+  "a converted boathouse or waterside property",
 ] as const;
 
 // Appended to every AI-photo prompt to steer away from the "AI slop"
 // tells research flagged (perfect unnatural lighting, showroom-clean
 // staging, generic stock-photo framing): specific camera/lens language,
-// a "lived-in" instruction (the single most effective phrase for
-// stopping interiors looking like AI renders), and explicit negative
-// constraints.
+// a "lived-in" instruction (the single most effective *prompt-wording*
+// lever for stopping interiors looking like AI renders), a rotated real
+// UK setting, and explicit negative constraints.
 function photoStyleSuffix(): string {
   const lens = LENS_VARIANTS[Math.floor(Math.random() * LENS_VARIANTS.length)];
-  return `, ${lens}, natural window or overcast daylight, shallow depth of field, warm muted tones, candid and unposed, documentary/editorial photography style, the space feels genuinely lived-in with small real imperfections, not a showroom. No visible text, logos, or warped hands/objects in the image. High detail.`;
+  const setting = SETTING_VARIANTS[Math.floor(Math.random() * SETTING_VARIANTS.length)];
+  return `, in or around ${setting}, ${lens}, natural window or overcast daylight, shallow depth of field, warm muted tones, candid and unposed, documentary/editorial photography style, the space feels genuinely lived-in with small real imperfections, not a showroom. No visible text, logos, or warped hands/objects in the image. High detail.`;
+}
+
+async function runFluxModel(model: typeof AI_MODEL | typeof AI_MODEL_FALLBACK, prompt: string, replicate: Replicate): Promise<unknown> {
+  const input: Record<string, unknown> = {
+    prompt,
+    aspect_ratio: "4:5",
+    output_format: "png",
+  };
+  if (model === AI_MODEL) {
+    input.raw = true; // Black Forest Labs' candid/naturalistic mode, ultra-only
+  }
+  return replicate.run(model, { input });
 }
 
 async function generateAiPhotoBuffer(prompt: string): Promise<Buffer | null> {
@@ -48,13 +84,15 @@ async function generateAiPhotoBuffer(prompt: string): Promise<Buffer | null> {
 
   try {
     const replicate = new Replicate({ auth: token });
-    const output = (await replicate.run(AI_MODEL, {
-      input: {
-        prompt: `${prompt}${photoStyleSuffix()}`,
-        aspect_ratio: "4:5",
-        output_format: "png",
-      },
-    })) as unknown;
+    const fullPrompt = `${prompt}${photoStyleSuffix()}`;
+
+    let output: unknown;
+    try {
+      output = await runFluxModel(AI_MODEL, fullPrompt, replicate);
+    } catch (ultraError) {
+      console.warn(`${AI_MODEL} failed, falling back to ${AI_MODEL_FALLBACK}:`, ultraError);
+      output = await runFluxModel(AI_MODEL_FALLBACK, fullPrompt, replicate);
+    }
 
     const file = Array.isArray(output) ? output[0] : output;
     if (!file) return null;
@@ -93,6 +131,9 @@ export async function generateAndStoreImage(params: {
   body: string;
   slideIndex: number;
   totalSlides: number;
+  // Picked once per post/carousel by the caller (not per slide) so a
+  // carousel's template slides stay visually consistent with each other.
+  layout?: TemplateLayout;
 }): Promise<GeneratedImage> {
   let buffer: Buffer | null = null;
   let actualSource: SocialImageSource = params.imageStyle;
@@ -121,6 +162,7 @@ export async function generateAndStoreImage(params: {
       body: params.body,
       slideIndex: params.slideIndex,
       totalSlides: params.totalSlides,
+      layout: params.layout,
     });
     actualSource = "TEMPLATE";
   }

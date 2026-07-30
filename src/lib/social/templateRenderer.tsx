@@ -17,13 +17,22 @@ const BRAND = {
   ink: "#1c1b2e",
 };
 
+export type TemplateLayout = "left" | "dark" | "card";
+export const TEMPLATE_LAYOUTS: TemplateLayout[] = ["left", "dark", "card"];
+
 export interface SlideRenderInput {
   headline: string;
   body: string;
   slideIndex: number; // 0-based
   totalSlides: number;
+  layout?: TemplateLayout;
 }
 
+// Three genuinely distinct visual layouts, not one design reused for every
+// post -- direct feedback ("what variations can we get"). Picked ONCE per
+// post/carousel (not per slide) by the caller, so a carousel's slides stay
+// visually consistent with each other while different posts across the
+// feed look different from one another.
 export async function renderTemplateSlide(input: SlideRenderInput): Promise<Buffer> {
   const [spaceGroteskBold, interRegular] = await Promise.all([
     loadFont("spaceGroteskBold"),
@@ -36,9 +45,115 @@ export async function renderTemplateSlide(input: SlideRenderInput): Promise<Buff
   ].filter((f): f is NonNullable<typeof f> => Boolean(f));
 
   const isCarousel = input.totalSlides > 1;
+  const layout = input.layout ?? "left";
+  const displayFont = spaceGroteskBold ? "Space Grotesk" : "sans-serif";
+  const bodyFont = interRegular ? "Inter" : "sans-serif";
 
-  const image = new ImageResponse(
-    (
+  const jsx =
+    layout === "dark" ? (
+      // High-contrast statement card -- dark indigo ground, white/accent
+      // text, headline centred and large. Good for a punchy single claim
+      // or stat, deliberately more dramatic than the default layout.
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: BRAND.indigoDeep,
+          padding: "80px 72px",
+          fontFamily: bodyFont,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", fontFamily: displayFont, fontWeight: 700, fontSize: 30, letterSpacing: 2, color: BRAND.accent }}>
+            REYSE
+          </div>
+          {isCarousel && (
+            <div style={{ display: "flex", fontSize: 24, color: "#ffffff", opacity: 0.55 }}>
+              {input.slideIndex + 1} / {input.totalSlides}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, justifyContent: "center", alignItems: "center", textAlign: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              fontFamily: displayFont,
+              fontWeight: 700,
+              fontSize: input.headline.length > 40 ? 58 : 76,
+              lineHeight: 1.1,
+              color: "#ffffff",
+              marginBottom: 36,
+            }}
+          >
+            {input.headline}
+          </div>
+          <div style={{ display: "flex", fontSize: 32, lineHeight: 1.5, color: "#ffffff", opacity: 0.75 }}>{input.body}</div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <div style={{ display: "flex", fontSize: 22, color: "#ffffff", opacity: 0.5 }}>reyse.co.uk</div>
+        </div>
+      </div>
+    ) : layout === "card" ? (
+      // Floating white card on the off-white ground -- softer, more
+      // editorial feel, headline+body centred within the card.
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: BRAND.bg,
+          padding: "60px 56px",
+          fontFamily: bodyFont,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 32 }}>
+          <div style={{ display: "flex", fontFamily: displayFont, fontWeight: 700, fontSize: 26, letterSpacing: 2, color: BRAND.indigo }}>
+            REYSE
+          </div>
+          {isCarousel && (
+            <div style={{ display: "flex", fontSize: 22, color: BRAND.ink, opacity: 0.5 }}>
+              {input.slideIndex + 1} / {input.totalSlides}
+            </div>
+          )}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+            justifyContent: "center",
+            backgroundColor: BRAND.surface,
+            borderRadius: 28,
+            padding: "64px 56px",
+            boxShadow: "0 2px 40px rgba(49,46,129,0.08)",
+          }}
+        >
+          <div style={{ display: "flex", width: 48, height: 5, backgroundColor: BRAND.accent, borderRadius: 3, marginBottom: 32 }} />
+          <div
+            style={{
+              display: "flex",
+              fontFamily: displayFont,
+              fontWeight: 700,
+              fontSize: input.headline.length > 40 ? 50 : 60,
+              lineHeight: 1.15,
+              color: BRAND.indigoDeep,
+              marginBottom: 32,
+            }}
+          >
+            {input.headline}
+          </div>
+          <div style={{ display: "flex", fontSize: 30, lineHeight: 1.5, color: BRAND.ink, opacity: 0.85 }}>{input.body}</div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 24 }}>
+          <div style={{ display: "flex", fontSize: 20, color: BRAND.ink, opacity: 0.45 }}>reyse.co.uk</div>
+        </div>
+      </div>
+    ) : (
+      // "left" -- the original default layout, kept as one option among
+      // several rather than the only one.
       <div
         style={{
           width: "100%",
@@ -47,31 +162,15 @@ export async function renderTemplateSlide(input: SlideRenderInput): Promise<Buff
           flexDirection: "column",
           backgroundColor: BRAND.bg,
           padding: "80px 72px",
-          fontFamily: interRegular ? "Inter" : "sans-serif",
+          fontFamily: bodyFont,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div
-            style={{
-              display: "flex",
-              fontFamily: spaceGroteskBold ? "Space Grotesk" : "sans-serif",
-              fontWeight: 700,
-              fontSize: 30,
-              letterSpacing: 2,
-              color: BRAND.indigo,
-            }}
-          >
+          <div style={{ display: "flex", fontFamily: displayFont, fontWeight: 700, fontSize: 30, letterSpacing: 2, color: BRAND.indigo }}>
             REYSE
           </div>
           {isCarousel && (
-            <div
-              style={{
-                display: "flex",
-                fontSize: 24,
-                color: BRAND.ink,
-                opacity: 0.55,
-              }}
-            >
+            <div style={{ display: "flex", fontSize: 24, color: BRAND.ink, opacity: 0.55 }}>
               {input.slideIndex + 1} / {input.totalSlides}
             </div>
           )}
@@ -83,7 +182,7 @@ export async function renderTemplateSlide(input: SlideRenderInput): Promise<Buff
           <div
             style={{
               display: "flex",
-              fontFamily: spaceGroteskBold ? "Space Grotesk" : "sans-serif",
+              fontFamily: displayFont,
               fontWeight: 700,
               fontSize: input.headline.length > 40 ? 56 : 68,
               lineHeight: 1.15,
@@ -94,27 +193,16 @@ export async function renderTemplateSlide(input: SlideRenderInput): Promise<Buff
           >
             {input.headline}
           </div>
-          <div
-            style={{
-              display: "flex",
-              fontSize: 34,
-              lineHeight: 1.5,
-              color: BRAND.ink,
-              opacity: 0.85,
-            }}
-          >
-            {input.body}
-          </div>
+          <div style={{ display: "flex", fontSize: 34, lineHeight: 1.5, color: BRAND.ink, opacity: 0.85 }}>{input.body}</div>
         </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <div style={{ display: "flex", fontSize: 22, color: BRAND.ink, opacity: 0.45 }}>reyse.co.uk</div>
         </div>
       </div>
-    ),
-    { width: WIDTH, height: HEIGHT, fonts },
-  );
+    );
 
+  const image = new ImageResponse(jsx, { width: WIDTH, height: HEIGHT, fonts });
   const arrayBuffer = await image.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
