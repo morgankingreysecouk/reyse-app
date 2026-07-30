@@ -122,9 +122,18 @@ export function planPost(pillar: SocialPillar): PostPlan {
 
   if (isCarousel) {
     const slideCount = 6 + Math.floor(Math.random() * 3); // 6-8
-    const slideImageStyles: SocialImageSource[] = Array.from({ length: slideCount }, (_, i) =>
-      i === 0 ? "AI_PHOTO" : "TEMPLATE",
-    );
+    // Cover slide is always a real photo (the scroll-stopper). The closing
+    // CTA slide gets one too, but only sometimes -- a real "here's the
+    // result" bookend adds visual variety worth having, but a second
+    // Replicate call on every single carousel would meaningfully raise the
+    // per-post cost, so this is capped at a modest 25% rather than applied
+    // to every carousel.
+    const closingPhoto = Math.random() < 0.25;
+    const slideImageStyles: SocialImageSource[] = Array.from({ length: slideCount }, (_, i) => {
+      if (i === 0) return "AI_PHOTO";
+      if (closingPhoto && i === slideCount - 1) return "AI_PHOTO";
+      return "TEMPLATE";
+    });
     return { type: "CAROUSEL", slideImageStyles, slideCount };
   }
 
