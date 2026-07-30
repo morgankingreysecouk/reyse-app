@@ -159,8 +159,8 @@ export async function generatePost(params: {
   };
 
   const issues: ContentIssue[] = [
-    ...validateCaption(parsed.instagramCaption, parsed.instagramHashtags, { min: 3, max: 5 }),
-    ...validateCaption(parsed.facebookCaption, parsed.facebookHashtags, { min: 2, max: 3 }),
+    ...validateCaption(parsed.instagramCaption, parsed.instagramHashtags, { min: 3, max: 5 }, "INSTAGRAM"),
+    ...validateCaption(parsed.facebookCaption, parsed.facebookHashtags, { min: 2, max: 3 }, "FACEBOOK"),
   ];
   for (const slide of parsed.slides) {
     issues.push(...validateSlide(slide.headline, slide.body, slide.altText));
