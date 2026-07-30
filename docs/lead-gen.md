@@ -41,7 +41,7 @@ Carried over from the old backend's `IDEAL_CUSTOMER_PROFILE.md`, unchanged in su
 Two independent channels feed the same pipeline and the same dedup gate — pick either per search, or run both over time to cover more ground.
 
 - **Map search** (`src/lib/leadgen/places.ts`): Google Places Text Search biased to a real lat/lng + radius, then a Place Details call per result to get its website (Places doesn't return a website in the base search response). Coordinates come from `src/lib/leadgen/searchTerms.ts`'s `UK_REGIONS` — a maintained list of real UK holiday-let hotspots grouped by region, not an algorithmically generated grid. Needs `GOOGLE_PLACES_API_KEY` and a billing-enabled Google Cloud project.
-- **Web search** (`src/lib/leadgen/customSearch.ts`): Google Custom Search JSON API, free up to 100 queries/day (no billing card), searching the phrase plus the selected town name with known platforms (Airbnb, Booking.com, Sykes, etc.) excluded from the query itself. Needs `GOOGLE_CUSTOM_SEARCH_KEY` and `GOOGLE_CSE_ID`.
+- **Web search** (`src/lib/leadgen/customSearch.ts`): Google Custom Search JSON API, free up to 100 queries/day (no billing card), searching the phrase plus the selected town name with known platforms (Airbnb, Booking.com, Sykes, etc.) excluded from the query itself. Needs `GOOGLE_CUSTOM_SEARCH_KEY` and `GOOGLE_CUSTOM_SEARCH_CX` (both already present on the Railway service, carried over from the old backend — confirmed 30 July 2026).
 
 Search phrases (`SEARCH_TERMS` in the same file) span the ICP's Tier 1/2 property types — holiday cottages, self-catering, glamping, luxury rentals, pet-friendly, group accommodation, and more — not one phrase reworded seven ways.
 
@@ -64,6 +64,6 @@ Outreach/sequence tracking (the old tool's 7-step, 11-day DM/email/SMS cadence t
 
 ## Troubleshooting
 
-- **"GOOGLE_PLACES_API_KEY not set" / map search returns 503**: expected until the key is added to this Railway service — see the Env vars list in `CLAUDE.md`'s Lead Generation section. Same for the Custom Search pair.
+- **"GOOGLE_PLACES_API_KEY not set" / map search returns 503**: expected until the key is added to this Railway service — see the Env vars list in `CLAUDE.md`'s Lead Generation section. The Custom Search pair (`GOOGLE_CUSTOM_SEARCH_KEY` / `GOOGLE_CUSTOM_SEARCH_CX`) is already set, so web search should work without this.
 - **Emails never land on `VALID`, always `RISKY`**: likely means outbound port 25 is blocked on this host, so the SMTP probe can't connect and it's correctly falling back rather than guessing. Confirm by checking server logs for the SMTP connection attempt; if it's always timing out, that confirms the block and the ceiling here is legitimately MX-only, same as the old tool, until/unless a different verification approach is worth adding.
 - **A lead you know is independent got saved as `PLATFORM`/`IRRELEVANT`**: check `classificationReason` on the row — the AI's homepage-only read can misjudge a site whose "who we are" signal is on a subpage, or a JS-heavy site with near-empty server-rendered HTML (this fetch doesn't render JavaScript). Manually flip it back with `excluded: false` via a `PATCH /api/leads/[id]`.

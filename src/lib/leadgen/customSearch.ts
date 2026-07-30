@@ -8,8 +8,12 @@ export interface SearchCandidate {
   domain: string;
 }
 
+// GOOGLE_CUSTOM_SEARCH_CX -- not GOOGLE_CSE_ID -- matches the variable name
+// already sitting in this Railway project from the old backend (named after
+// Google's own API parameter, "cx", rather than "CSE ID"). Kept as the
+// existing name deliberately so nothing needs adding/renaming in Railway.
 const CSE_KEY = () => process.env.GOOGLE_CUSTOM_SEARCH_KEY;
-const CSE_ID = () => process.env.GOOGLE_CSE_ID;
+const CSE_ID = () => process.env.GOOGLE_CUSTOM_SEARCH_CX;
 
 export function customSearchConfigured(): boolean {
   return !!(CSE_KEY() && CSE_ID());
@@ -39,7 +43,7 @@ export async function searchCustomSearch(params: {
 }): Promise<SearchCandidate[]> {
   const key = CSE_KEY();
   const cx = CSE_ID();
-  if (!key || !cx) throw new Error("GOOGLE_CUSTOM_SEARCH_KEY / GOOGLE_CSE_ID not set");
+  if (!key || !cx) throw new Error("GOOGLE_CUSTOM_SEARCH_KEY / GOOGLE_CUSTOM_SEARCH_CX not set");
 
   const exclusions = PLATFORM_EXCLUSIONS.map((d) => `-site:${d}`).join(" ");
   const fullQuery = `${params.query} ${exclusions}`;

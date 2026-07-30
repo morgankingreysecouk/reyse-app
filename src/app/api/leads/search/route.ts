@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
     return new Response("GOOGLE_PLACES_API_KEY not set on this environment yet.", { status: 503 });
   }
   if (mode === "cse" && !customSearchConfigured()) {
-    return new Response("GOOGLE_CUSTOM_SEARCH_KEY / GOOGLE_CSE_ID not set on this environment yet.", { status: 503 });
+    return new Response("GOOGLE_CUSTOM_SEARCH_KEY / GOOGLE_CUSTOM_SEARCH_CX not set on this environment yet.", { status: 503 });
   }
 
   const { stream, writer } = makeStream();
