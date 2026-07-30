@@ -1,12 +1,10 @@
-import { Settings } from "lucide-react";
-import { PlaceholderPage } from "@/components/shell/placeholder-page";
+import { TalkVoiceSettings } from "@/components/settings/talk-voice-settings";
 
 export default function SettingsPage() {
   return (
-    <PlaceholderPage
-      icon={Settings}
-      title="Settings"
-      description="Account, integrations, and system configuration will live here."
-    />
+    <div className="flex flex-col gap-6 max-w-lg">
+      <h1 className="font-display text-xl font-semibold text-ink">Settings</h1>
+      <TalkVoiceSettings />
+    </div>
   );
 }
