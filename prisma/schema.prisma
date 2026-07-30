@@ -368,3 +368,35 @@ model AiUsageLog {
   @@index([createdAt])
   @@map("ra_ai_usage_log")
 }
+
+enum BackgroundTaskStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+
+  @@map("ra_talk_background_task_status")
+}
+
+// A build/research/writing task Talk to Rey queues instead of doing inline,
+// so a live voice conversation isn't blocked waiting on multi-step work.
+// Runs as its own Agent SDK session (own sessionId, scoped to the vault
+// checkout same as the live conversation) via Next's after(). reportedAt
+// tracks whether a finished task has already been mentioned back to Morgan
+// on a later voice turn, so it's surfaced exactly once.
+model BackgroundTask {
+  id            String               @id @default(cuid())
+  prompt        String
+  status        BackgroundTaskStatus @default(PENDING)
+  sessionId     String?
+  resultSummary String?
+  error         String?
+
+  reportedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([reportedAt])
+  @@map("ra_talk_background_task")
+}
