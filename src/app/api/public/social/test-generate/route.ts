@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateNewPostPair } from "@/lib/social/postPipeline";
+import { db } from "@/lib/db";
 
 // Secret-gated (same shared secret as every other server-to-server public
 // route), NOT session-based -- lets a real generation be triggered and
@@ -30,7 +31,18 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await generateNewPostPair(pillar);
-    return NextResponse.json({ result });
+    if (!result) return NextResponse.json({ result });
+
+    // Returns the full generated rows (captions, hashtags, image asset IDs)
+    // rather than just the groupId -- the whole point of this route is
+    // inspecting real output without a browser session, so a bare ID that
+    // needs a second authenticated lookup to actually see anything defeats
+    // that purpose.
+    const posts = await db.socialPost.findMany({
+      where: { groupId: result.groupId },
+      include: { images: { orderBy: { order: "asc" } } },
+    });
+    return NextResponse.json({ result, posts });
   } catch (error) {
     console.error("Test generation failed:", error);
     return NextResponse.json(
