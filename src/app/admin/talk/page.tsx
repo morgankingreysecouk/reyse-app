@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Mic, Send } from "lucide-react";
+import { Mic, Send, Copy, Check } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 type TalkState = "idle" | "listening" | "thinking" | "speaking";
+type HandoffBrief = { project: string; brief: string };
 
 const STATE_LABEL: Record<TalkState, string> = {
   idle: "Hold to talk, or type below",
@@ -23,6 +24,7 @@ async function playTurnResponse(
   audioElRef: React.RefObject<HTMLAudioElement | null>,
   setTranscript: (v: string) => void,
   setReply: (v: string) => void,
+  setHandoffBrief: (v: HandoffBrief | null) => void,
   setState: (v: TalkState) => void,
 ) {
   const data = await res.json();
@@ -30,6 +32,7 @@ async function playTurnResponse(
 
   setTranscript(data.transcript);
   setReply(data.reply);
+  setHandoffBrief(data.handoffBrief ?? null);
 
   const audioEl = audioElRef.current ?? new Audio();
   audioElRef.current = audioEl;
@@ -45,6 +48,8 @@ export default function TalkPage() {
   const [reply, setReply] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [textInput, setTextInput] = useState("");
+  const [handoffBrief, setHandoffBrief] = useState<HandoffBrief | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -106,7 +111,7 @@ export default function TalkPage() {
         const form = new FormData();
         form.append("audio", blob, "turn.webm");
         const res = await fetch("/api/talk/turn", { method: "POST", body: form });
-        await playTurnResponse(res, audioElRef, setTranscript, setReply, setState);
+        await playTurnResponse(res, audioElRef, setTranscript, setReply, setHandoffBrief, setState);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
         setState("idle");
@@ -130,12 +135,19 @@ export default function TalkPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      await playTurnResponse(res, audioElRef, setTranscript, setReply, setState);
+      await playTurnResponse(res, audioElRef, setTranscript, setReply, setHandoffBrief, setState);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setState("idle");
     }
   }, [textInput, state, stopPlayback]);
+
+  const copyBrief = useCallback(() => {
+    if (!handoffBrief) return;
+    navigator.clipboard.writeText(handoffBrief.brief);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [handoffBrief]);
 
   return (
     <div className="h-full flex items-center justify-center">
@@ -197,6 +209,20 @@ export default function TalkPage() {
         )}
         {reply && <p className="text-xs text-ink-muted">Rey: {reply}</p>}
         {error && <p className="text-xs text-danger mt-2">{error}</p>}
+
+        {handoffBrief && (
+          <div className="mt-4 text-left rounded-md border border-border-strong bg-surface-raised p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+                Build brief -- {handoffBrief.project}
+              </span>
+              <Button variant="secondary" size="sm" onClick={copyBrief}>
+                {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <p className="text-xs text-ink whitespace-pre-wrap">{handoffBrief.brief}</p>
+          </div>
+        )}
       </Card>
     </div>
   );
