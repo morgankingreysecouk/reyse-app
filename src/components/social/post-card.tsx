@@ -4,8 +4,12 @@ import type { SocialPost, SocialPostImage } from "@/generated/prisma/client";
 
 type PostWithImages = SocialPost & { images: Pick<SocialPostImage, "id" | "assetId" | "order" | "altText" | "source">[] };
 
-export function PostCard({ post, onClick }: { post: PostWithImages; onClick: () => void }) {
-  const cover = post.images[0];
+// A card represents one cross-posted GROUP (1-2 rows sharing a groupId,
+// same images/pillar, one Instagram version and one Facebook version) --
+// shown as a single card with a badge per platform, not two near-identical
+// cards, since that read as accidental duplication.
+export function PostCard({ posts, onClick }: { posts: PostWithImages[]; onClick: () => void }) {
+  const cover = posts[0].images[0];
 
   return (
     <button
@@ -19,19 +23,23 @@ export function PostCard({ post, onClick }: { post: PostWithImages; onClick: () 
         ) : (
           <div className="w-full h-full flex items-center justify-center text-ink-muted text-xs">No image</div>
         )}
-        {post.images.length > 1 && (
+        {posts[0].images.length > 1 && (
           <div className="absolute top-2 right-2 bg-black/60 text-white text-[11px] px-1.5 py-0.5 rounded-md flex items-center gap-1">
-            <Images size={11} /> {post.images.length}
+            <Images size={11} /> {posts[0].images.length}
           </div>
         )}
       </div>
       <div className="p-3 flex flex-col gap-2 flex-1">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <PlatformBadge platform={post.platform} />
-          <StatusBadge status={post.status} />
+        <div className="flex flex-col gap-1">
+          {posts.map((post) => (
+            <div key={post.id} className="flex items-center gap-1.5 flex-wrap">
+              <PlatformBadge platform={post.platform} />
+              <StatusBadge status={post.status} />
+            </div>
+          ))}
         </div>
-        <PillarBadge pillar={post.pillar} />
-        <p className="text-xs text-ink-muted line-clamp-3">{post.caption}</p>
+        <PillarBadge pillar={posts[0].pillar} />
+        <p className="text-xs text-ink-muted line-clamp-3">{posts[0].caption}</p>
       </div>
     </button>
   );

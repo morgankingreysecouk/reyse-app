@@ -529,3 +529,113 @@ model AiUsageLog {
   @@index([createdAt])
   @@map("ra_ai_usage_log")
 }
+
+enum BackgroundTaskStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+
+  @@map("ra_talk_background_task_status")
+}
+
+// A build/research/writing task Talk to Rey queues instead of doing inline,
+// so a live voice conversation isn't blocked waiting on multi-step work.
+// Runs as its own Agent SDK session (own sessionId, scoped to the vault
+// checkout same as the live conversation) via Next's after(). reportedAt
+// tracks whether a finished task has already been mentioned back to Morgan
+// on a later voice turn, so it's surfaced exactly once.
+model BackgroundTask {
+  id            String               @id @default(cuid())
+  prompt        String
+  status        BackgroundTaskStatus @default(PENDING)
+  sessionId     String?
+  resultSummary String?
+  error         String?
+
+  reportedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([reportedAt])
+  @@map("ra_talk_background_task")
+}
+
+// Email Assistant -- full inbox access to Morgan's own Gmail (not a
+// per-client feature). Rey reads the inbox, organises it into folders
+// (Gmail labels), and drafts replies -- never sends. Phase 1 (this build):
+// connect, read, organise. Drafts and a chat panel are later phases.
+//
+// Single row -- one inbox, one connection. The refresh token is encrypted
+// at rest (AES-256-GCM, see src/lib/mail/crypto.ts) rather than stored
+// plain, same "no secrets sitting in the open" instinct as everywhere else
+// in this codebase. The OAuth client this token belongs to is a dedicated
+// one ("Reyse Mail Assistant", Internal audience, Workspace-confirmed so
+// tokens don't expire), kept separate from the client that handles
+// dashboard sign-in so nothing here can affect login.
+model MailAccount {
+  id    String @id @default("singleton")
+  email String
+
+  refreshTokenCiphertext String
+  refreshTokenIv         String
+  refreshTokenAuthTag    String
+
+  // Gmail's incremental-sync cursor (Users.history.list) -- null until the
+  // first sync, after which every tick only asks Gmail "what changed since
+  // this ID" instead of re-scanning the inbox.
+  historyId String?
+
+  connectedAt   DateTime  @default(now())
+  lastSyncedAt  DateTime?
+  lastSyncError String?
+
+  // Tracks the one-time (or Morgan-triggered re-run) sweep through the
+  // *entire* existing mailbox -- distinct from the ongoing 5-minute job
+  // above, which only ever looks at new arrivals. Starts IN_PROGRESS the
+  // moment the account connects. backfillPageToken resumes the sweep
+  // across ticks (Gmail's messages.list pagination), since a real mailbox
+  // is too large to process in one tick.
+  backfillStatus    MailBackfillStatus @default(NOT_STARTED)
+  backfillPageToken String?
+
+  @@map("ra_mail_account")
+}
+
+enum MailBackfillStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+
+  @@map("ra_mail_backfill_status")
+}
+
+enum MailActivityAction {
+  MESSAGE_FILED // a message got its first folder(s)
+  MESSAGE_MOVED // a message's folder(s) changed -- some removed, some added
+  LABEL_CREATED
+  LABEL_RENAMED
+  LABEL_DELETED
+  SYNC_ERROR
+
+  @@map("ra_mail_activity_action")
+}
+
+// Every organising action Rey takes gets logged here -- the activity feed
+// on the Mail page reads straight from this table. This is the paper trail
+// that makes "full trust, no per-action confirmation" (Morgan's call, 30
+// July 2026) safe to grant: nothing is a black box after the fact, even
+// though nothing needs approval before the fact.
+model MailActivityLog {
+  id      String             @id @default(cuid())
+  action  MailActivityAction
+  // Human-readable one-liner for the feed, e.g. "Filed 'Booking.com
+  // payout' under Finance" or "Created folder Client Enquiries".
+  summary String
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("ra_mail_activity_log")
+}
