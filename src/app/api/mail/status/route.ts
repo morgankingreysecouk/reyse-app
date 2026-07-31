@@ -17,5 +17,6 @@ export async function GET() {
     connectedAt: account.connectedAt,
     lastSyncedAt: account.lastSyncedAt,
     lastSyncError: account.lastSyncError,
+    backfillStatus: account.backfillStatus,
   });
 }

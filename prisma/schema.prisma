@@ -430,11 +430,29 @@ model MailAccount {
   lastSyncedAt  DateTime?
   lastSyncError String?
 
+  // Tracks the one-time (or Morgan-triggered re-run) sweep through the
+  // *entire* existing mailbox -- distinct from the ongoing 5-minute job
+  // above, which only ever looks at new arrivals. Starts IN_PROGRESS the
+  // moment the account connects. backfillPageToken resumes the sweep
+  // across ticks (Gmail's messages.list pagination), since a real mailbox
+  // is too large to process in one tick.
+  backfillStatus    MailBackfillStatus @default(NOT_STARTED)
+  backfillPageToken String?
+
   @@map("ra_mail_account")
 }
 
+enum MailBackfillStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+
+  @@map("ra_mail_backfill_status")
+}
+
 enum MailActivityAction {
-  MESSAGE_FILED // one or more labels applied to a message
+  MESSAGE_FILED // a message got its first folder(s)
+  MESSAGE_MOVED // a message's folder(s) changed -- some removed, some added
   LABEL_CREATED
   LABEL_RENAMED
   LABEL_DELETED

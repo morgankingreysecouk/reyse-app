@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { gmail_v1 } from "googleapis";
 import { logAiUsage } from "@/lib/aiUsageLog";
-import { createFolder, fileMessage, type Folder } from "./labels";
+import { createFolder, refileMessage, type Folder } from "./labels";
 
 const MODEL = "claude-opus-4-8";
 
@@ -10,6 +10,11 @@ export interface InboxMessage {
   subject: string;
   from: string;
   snippet: string;
+  // Folders (user labels) the message is actually sitting in right now --
+  // empty for a brand-new unfiled message. This is what lets organising
+  // become a real move (remove these, add the new ones) instead of only
+  // ever piling a label on top.
+  currentFolders: Folder[];
 }
 
 interface ClassificationResult {
@@ -97,10 +102,13 @@ export async function classifyMessages(
   return JSON.parse(textBlock.text) as ClassificationResult;
 }
 
-// Classifies a batch of new messages, creates whatever new folders were
-// genuinely needed, then files every message -- the only place phase 1's
-// "full trust, no per-action confirmation" autonomy actually happens.
-export async function organizeNewMessages(
+// Classifies a batch of messages, creates whatever new folders were
+// genuinely needed, then refiles every message into place -- the only
+// place "full trust, no per-action confirmation" autonomy actually
+// happens. Used both by the ongoing new-mail job (messages arrive with no
+// currentFolders yet) and the backfill sweep (messages may already be
+// sitting somewhere and can genuinely move).
+export async function organizeMessages(
   gmail: gmail_v1.Gmail,
   messages: InboxMessage[],
   existingFolders: Folder[],
@@ -133,12 +141,6 @@ export async function organizeNewMessages(
       .filter((f): f is Folder => Boolean(f));
     if (folders.length === 0) continue;
 
-    await fileMessage(
-      gmail,
-      message.id,
-      message.subject,
-      folders.map((f) => f.name),
-      folders.map((f) => f.id),
-    );
+    await refileMessage(gmail, message.id, message.subject, message.currentFolders, folders);
   }
 }

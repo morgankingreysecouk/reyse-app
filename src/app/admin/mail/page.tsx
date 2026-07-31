@@ -33,6 +33,7 @@ interface Status {
   email?: string;
   lastSyncedAt?: string | null;
   lastSyncError?: string | null;
+  backfillStatus?: "NOT_STARTED" | "IN_PROGRESS" | "DONE";
 }
 
 function timeAgo(iso: string): string {
@@ -129,6 +130,9 @@ export default function MailPage() {
         </div>
         <div className="flex items-center gap-3">
           {justConnected && <Badge tone="success">Connected</Badge>}
+          {status.backfillStatus === "IN_PROGRESS" && (
+            <span className="text-xs text-ink-faint">Reorganising existing mail...</span>
+          )}
           {status.lastSyncError ? (
             <Badge tone="danger">
               <AlertCircle size={12} /> Sync error

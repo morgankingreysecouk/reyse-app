@@ -4,13 +4,28 @@ import { db } from "@/lib/db";
 // Every function here both makes the real Gmail-side change and writes the
 // matching MailActivityLog row -- one place, so there's no way to make a
 // change here without it showing up in the on-page activity feed.
-async function log(action: "MESSAGE_FILED" | "LABEL_CREATED" | "LABEL_RENAMED" | "LABEL_DELETED" | "SYNC_ERROR", summary: string) {
+async function log(
+  action: "MESSAGE_FILED" | "MESSAGE_MOVED" | "LABEL_CREATED" | "LABEL_RENAMED" | "LABEL_DELETED" | "SYNC_ERROR",
+  summary: string,
+) {
   await db.mailActivityLog.create({ data: { action, summary } });
 }
 
 export interface Folder {
   id: string;
   name: string;
+}
+
+// Gmail's own system labels (INBOX, SENT, TRASH, CATEGORY_*, UNREAD, ...)
+// -- never candidates to create/rename/delete/remove, only Morgan's own
+// user-created labels (Gmail's "folders") are. Shared between here and
+// scheduler.ts so both agree on exactly the same definition of "a folder."
+const SYSTEM_LABEL_PREFIXES = [
+  "INBOX", "SENT", "DRAFT", "TRASH", "SPAM", "STARRED", "IMPORTANT", "UNREAD", "CHAT", "CATEGORY_",
+];
+
+export function isFolderLabel(labelId: string): boolean {
+  return !SYSTEM_LABEL_PREFIXES.some((p) => labelId === p || labelId.startsWith(p));
 }
 
 // Gmail's own system labels (INBOX, SENT, TRASH, CATEGORY_*, ...) come back
@@ -47,20 +62,43 @@ export async function deleteFolder(gmail: gmail_v1.Gmail, id: string, name: stri
   await log("LABEL_DELETED", `Deleted folder "${name}"`);
 }
 
-export async function fileMessage(
+// Reconciles a message's actual folder membership with where it should be:
+// adds whatever's missing, removes whatever user-created folder it's
+// sitting in that it shouldn't be any more. This is what makes "take it
+// out of one folder and put it in another" real -- fileMessage used to
+// only ever add, never remove, which meant a message could pick up
+// folders but never actually move between them.
+export async function refileMessage(
   gmail: gmail_v1.Gmail,
   messageId: string,
   subject: string,
-  folderNames: string[],
-  labelIds: string[],
+  currentFolders: Folder[],
+  targetFolders: Folder[],
 ): Promise<void> {
+  const currentIds = new Set(currentFolders.map((f) => f.id));
+  const targetIds = new Set(targetFolders.map((f) => f.id));
+
+  const toAdd = targetFolders.filter((f) => !currentIds.has(f.id));
+  const toRemove = currentFolders.filter((f) => !targetIds.has(f.id));
+
+  if (toAdd.length === 0 && toRemove.length === 0) return; // already correctly filed
+
   await gmail.users.messages.modify({
     userId: "me",
     id: messageId,
-    requestBody: { addLabelIds: labelIds },
+    requestBody: {
+      addLabelIds: toAdd.map((f) => f.id),
+      removeLabelIds: toRemove.map((f) => f.id),
+    },
   });
-  const folderList = folderNames.map((n) => `"${n}"`).join(", ");
-  await log("MESSAGE_FILED", `Filed "${subject}" under ${folderList}`);
+
+  const targetList = targetFolders.map((f) => `"${f.name}"`).join(", ");
+  if (currentFolders.length === 0) {
+    await log("MESSAGE_FILED", `Filed "${subject}" under ${targetList}`);
+  } else {
+    const fromList = currentFolders.map((f) => `"${f.name}"`).join(", ");
+    await log("MESSAGE_MOVED", `Moved "${subject}" from ${fromList} to ${targetList}`);
+  }
 }
 
 export async function logSyncError(message: string): Promise<void> {
