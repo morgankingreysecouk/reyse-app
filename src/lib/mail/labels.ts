@@ -54,13 +54,18 @@ export async function fileMessage(
   folderNames: string[],
   labelIds: string[],
 ): Promise<void> {
+  // Also removes INBOX -- Gmail's standard "move to folder" behavior, not
+  // just tagging. Without this, every filed message would still sit in the
+  // primary inbox forever, just with a label added, which defeats the
+  // point of organising it. Still fully recoverable: nothing is deleted,
+  // the message is found under its folder label or in All Mail.
   await gmail.users.messages.modify({
     userId: "me",
     id: messageId,
-    requestBody: { addLabelIds: labelIds },
+    requestBody: { addLabelIds: labelIds, removeLabelIds: ["INBOX"] },
   });
   const folderList = folderNames.map((n) => `"${n}"`).join(", ");
-  await log("MESSAGE_FILED", `Filed "${subject}" under ${folderList}`);
+  await log("MESSAGE_FILED", `Filed "${subject}" under ${folderList} (archived out of inbox)`);
 }
 
 export async function logSyncError(message: string): Promise<void> {
