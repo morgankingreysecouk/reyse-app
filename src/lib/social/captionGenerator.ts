@@ -111,6 +111,7 @@ ${config.brief}
 
 IMAGE DIRECTION FOR THIS PILLAR: ${config.imageBrief}
 When writing each slide's imagePrompt, be concrete and specific about what's actually in frame (not "a host working", but "a woman in her 40s at a kitchen table, laptop open beside a mug of tea, looking at her phone with a relaxed half-smile, morning light through a window behind her"). The scene should feel lived-in and real, never a staged stock-photo showroom.
+Never describe a prop with readable text on it -- a handwritten note, a sign, a screen showing legible content, a label with words. AI photo generation cannot render real text; it always comes out as garbled nonsense, which looks broken and unprofessional up close. If the natural scene involves something like a note or a device, either leave the text-bearing object out and use a different concrete detail instead (a key, a mug, a suitcase, a doorway), or describe it from far enough away / at an angle where no text would be legible.
 
 ${formatNote(plan)}`;
 }

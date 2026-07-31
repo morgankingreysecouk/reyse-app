@@ -60,7 +60,7 @@ const SETTING_VARIANTS = [
 function photoStyleSuffix(): string {
   const lens = LENS_VARIANTS[Math.floor(Math.random() * LENS_VARIANTS.length)];
   const setting = SETTING_VARIANTS[Math.floor(Math.random() * SETTING_VARIANTS.length)];
-  return `, in or around ${setting}, ${lens}, natural window or overcast daylight, shallow depth of field, warm muted tones, candid and unposed, documentary/editorial photography style, the space feels genuinely lived-in with small real imperfections, not a showroom. No visible text, logos, or warped hands/objects in the image. High detail.`;
+  return `, in or around ${setting}, ${lens}, natural window or overcast daylight, shallow depth of field, warm muted tones, candid and unposed, documentary/editorial photography style, the space feels genuinely lived-in with small real imperfections, not a showroom. Absolutely no readable text, handwriting, signs, notes, or screens with legible content anywhere in the frame -- if paper or a device appears, it must be blank, blurred, or angled away, never showing words. No warped hands or objects. High detail.`;
 }
 
 async function runFluxModel(model: typeof AI_MODEL | typeof AI_MODEL_FALLBACK, prompt: string, replicate: Replicate): Promise<unknown> {
