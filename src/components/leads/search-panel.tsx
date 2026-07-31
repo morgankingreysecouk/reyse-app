@@ -171,11 +171,14 @@ export function SearchPanel({
           ))}
         </select>
 
-        <div className="flex gap-2">
+        {/* Stacked, not side-by-side -- this panel is only ~320px wide, and
+            two fields sharing that width left "or new collection name"
+            visibly cut off. */}
+        <div className="space-y-2">
           <select
             value={collectionId}
             onChange={(e) => setCollectionId(e.target.value)}
-            className="flex-1 h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none"
+            className="w-full h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none"
           >
             <option value="">No collection</option>
             {collections.map((c) => (
@@ -190,8 +193,8 @@ export function SearchPanel({
               setNewCollectionName(e.target.value);
               setCollectionId("");
             }}
-            placeholder="or new collection name"
-            className="flex-1 h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none placeholder:text-ink-faint"
+            placeholder="...or name a new collection"
+            className="w-full h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none placeholder:text-ink-faint"
           />
         </div>
 

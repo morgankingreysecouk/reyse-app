@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { Phone, Mail, AtSign, Link2, ExternalLink, User, RefreshCw, Trash2, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ClassificationBadge, EnrichmentBadge, EmailVerificationBadge, InstagramVerificationBadge } from "./badges";
-import type { Lead } from "@/generated/prisma/client";
+import { ClassificationBadge, EnrichmentBadge } from "./badges";
+import type { Lead, LeadEmailVerification, LeadInstagramVerification } from "@/generated/prisma/client";
 
 function domainOf(url: string): string {
   try {
@@ -14,17 +14,52 @@ function domainOf(url: string): string {
   }
 }
 
+// "@handle" reads at a glance; the raw profile URL doesn't -- every social
+// chip showing an identical truncated "https://www.instagram.c..." was the
+// single worst thing about the first real look at this page.
+function instagramHandle(url: string): string {
+  try {
+    const handle = new URL(url).pathname.replace(/^\//, "").replace(/\/$/, "");
+    return handle ? `@${handle}` : "Instagram";
+  } catch {
+    return "Instagram";
+  }
+}
+
+type VerifyTone = "valid" | "risky" | "invalid" | null;
+
+function verifyToneOf(status: LeadEmailVerification | LeadInstagramVerification): VerifyTone {
+  if (status === "VALID") return "valid";
+  if (status === "RISKY") return "risky";
+  if (status === "INVALID") return "invalid";
+  return null; // UNVERIFIED -- no dot, nothing to signal yet
+}
+
+const VERIFY_DOT: Record<Exclude<VerifyTone, null>, { color: string; label: string }> = {
+  valid: { color: "bg-success", label: "Verified" },
+  risky: { color: "bg-warning", label: "Risky -- couldn't fully confirm" },
+  invalid: { color: "bg-danger", label: "Invalid" },
+};
+
+// A verification result now renders as a small dot INSIDE the same pill as
+// the value, not as a separate badge floating after it with a gap --
+// that separation read as two unrelated pieces of information instead of
+// one fact ("this email, and here's its status") at a glance.
 function ContactField({
   icon,
   value,
+  displayValue,
   placeholder,
   href,
+  verify,
   onSave,
 }: {
   icon: React.ReactNode;
   value: string | null;
+  displayValue?: string;
   placeholder: string;
   href?: string;
+  verify?: VerifyTone;
   onSave: (v: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -52,22 +87,25 @@ function ContactField({
     );
   }
 
+  const dot = verify ? VERIFY_DOT[verify] : null;
+
   const content = (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-border-strong text-xs text-ink-muted hover:border-ink-faint transition-colors max-w-[180px] truncate">
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-border-strong text-xs text-ink-muted hover:border-ink-faint transition-colors max-w-[220px]">
       {icon}
-      <span className="truncate">{value ?? placeholder}</span>
+      <span className="truncate">{displayValue ?? value ?? placeholder}</span>
+      {dot && <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dot.color}`} title={dot.label} />}
     </span>
   );
 
   if (value && href) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" title={value}>
+      <a href={href} target="_blank" rel="noopener noreferrer" title={dot ? `${value} -- ${dot.label}` : value}>
         {content}
       </a>
     );
   }
   return (
-    <button onClick={() => setEditing(true)} title={value ?? undefined}>
+    <button onClick={() => setEditing(true)} title={value ? (dot ? `${value} -- ${dot.label}` : value) : undefined}>
       {content}
     </button>
   );
@@ -143,11 +181,12 @@ export function LeadCard({
           placeholder="add phone"
           onSave={(v) => onUpdate(lead.id, { phone: v })}
         />
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <ContactField
             icon={<Mail size={12} />}
             value={lead.email}
             placeholder="add email"
+            verify={lead.email ? verifyToneOf(lead.emailVerification) : undefined}
             onSave={(v) => onUpdate(lead.id, { email: v })}
           />
           {lead.email && (
@@ -155,24 +194,25 @@ export function LeadCard({
               onClick={() => run("verify", () => onVerifyEmail(lead.id, lead.email!))}
               disabled={busy !== null}
               title="Re-verify this email"
-              className="text-ink-faint hover:text-indigo transition-colors"
+              className="text-ink-faint hover:text-indigo transition-colors p-0.5"
             >
               {busy === "verify" ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
             </button>
           )}
-          {lead.email && <EmailVerificationBadge status={lead.emailVerification} />}
         </div>
         <ContactField
           icon={<AtSign size={12} />}
           value={lead.instagram}
+          displayValue={lead.instagram ? instagramHandle(lead.instagram) : undefined}
           placeholder="add instagram"
           href={lead.instagram ?? undefined}
+          verify={lead.instagram ? verifyToneOf(lead.instagramVerification) : undefined}
           onSave={(v) => onUpdate(lead.id, { instagram: v })}
         />
-        {lead.instagram && <InstagramVerificationBadge status={lead.instagramVerification} />}
         <ContactField
           icon={<Link2 size={12} />}
           value={lead.linkedin}
+          displayValue={lead.linkedin ? "LinkedIn" : undefined}
           placeholder="add linkedin"
           href={lead.linkedin ?? undefined}
           onSave={(v) => onUpdate(lead.id, { linkedin: v })}
@@ -180,6 +220,7 @@ export function LeadCard({
         <ContactField
           icon={<ExternalLink size={12} />}
           value={lead.facebook}
+          displayValue={lead.facebook ? "Facebook" : undefined}
           placeholder="add facebook"
           href={lead.facebook ?? undefined}
           onSave={(v) => onUpdate(lead.id, { facebook: v })}
