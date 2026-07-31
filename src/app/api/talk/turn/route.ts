@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import path from "path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { db } from "@/lib/db";
 import { speak } from "@/lib/talk/speak";
-import { talkToolsServer } from "@/lib/talk/tools";
+import { talkToolsServer, takeLastHandoffBrief } from "@/lib/talk/tools";
 import { claimUnreportedFinishedTasks } from "@/lib/talk/backgroundTasks";
+import { syncVaultToGitHub } from "@/lib/talk/vaultGit";
 
 // Needs a real Node process (spawns the Agent SDK's native binary as a
 // subprocess), not the edge runtime.
@@ -25,9 +26,12 @@ sentences, no markdown, no headings, no code blocks, no bullet points or
 numbered lists. Say it the way you'd actually say it out loud.
 
 You have a queue_background_task tool for substantial build/research/writing
-work. Gather what you need from Morgan in conversation first; only queue once
-you have a clear brief and he's said to go ahead. Never claim a queued task is
-finished -- only that you're on it.
+work you can do yourself (vault notes, research, drafts). For an actual code
+change to reyse-app, Reyse-Website, or reyse-vault, use handoff_prompt instead
+-- you can't build those yourself, only write up a brief for later. Gather
+what you need from Morgan in conversation first; only call either tool once
+you have a clear brief and he's said to go ahead. Never claim queued or
+handed-off work is finished -- only that it's queued or on its way.
 
 A message may start with a bracketed note like "[Background task finished:
 ...]" before Morgan's actual words. That's real system information about a
@@ -107,14 +111,48 @@ async function think(userText: string): Promise<string> {
   return resultText;
 }
 
+async function respondTo(transcript: string) {
+  const reply = await think(transcript);
+  const handoffBrief = takeLastHandoffBrief();
+  const settings = await db.talkSettings.findUnique({ where: { id: "singleton" } });
+  const audioBuffer = await speak(
+    reply,
+    settings?.voice ?? "bm_lewis",
+    settings?.blendVoice ?? null,
+    settings?.speed ?? 1.0,
+  );
+
+  // Covers any vault edit made this turn (handoff_prompt or a plain
+  // Write/Edit tool call) in one push, rather than syncing per-tool-call.
+  after(() => syncVaultToGitHub("Talk to Rey: sync vault changes"));
+
+  return NextResponse.json({
+    transcript,
+    reply,
+    handoffBrief,
+    audio: audioBuffer.toString("base64"),
+  });
+}
+
 export async function POST(request: Request) {
-  const form = await request.formData();
-  const audio = form.get("audio");
-  if (!(audio instanceof Blob)) {
-    return NextResponse.json({ error: "No audio provided" }, { status: 400 });
-  }
+  const contentType = request.headers.get("content-type") ?? "";
 
   try {
+    if (contentType.includes("application/json")) {
+      const body = (await request.json()) as { text?: unknown };
+      const text = typeof body.text === "string" ? body.text.trim() : "";
+      if (!text) {
+        return NextResponse.json({ error: "No message provided" }, { status: 400 });
+      }
+      return await respondTo(text);
+    }
+
+    const form = await request.formData();
+    const audio = form.get("audio");
+    if (!(audio instanceof Blob)) {
+      return NextResponse.json({ error: "No audio provided" }, { status: 400 });
+    }
+
     const transcript = await transcribe(audio);
     if (!transcript) {
       return NextResponse.json(
@@ -122,21 +160,7 @@ export async function POST(request: Request) {
         { status: 422 },
       );
     }
-
-    const reply = await think(transcript);
-    const settings = await db.talkSettings.findUnique({ where: { id: "singleton" } });
-    const audioBuffer = await speak(
-      reply,
-      settings?.voice ?? "bm_lewis",
-      settings?.blendVoice ?? null,
-      settings?.speed ?? 1.0,
-    );
-
-    return NextResponse.json({
-      transcript,
-      reply,
-      audio: audioBuffer.toString("base64"),
-    });
+    return await respondTo(transcript);
   } catch (err) {
     console.error("Talk turn failed:", err);
     return NextResponse.json(

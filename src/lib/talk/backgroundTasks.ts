@@ -1,6 +1,7 @@
 import path from "path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { db } from "@/lib/db";
+import { syncVaultToGitHub } from "@/lib/talk/vaultGit";
 import type { BackgroundTask } from "@/generated/prisma/client";
 
 const VAULT_DIR = path.join(process.cwd(), "vault");
@@ -69,6 +70,10 @@ export async function runBackgroundTask(taskId: string): Promise<void> {
     } catch (dbErr) {
       console.error(`Background task ${taskId} failed and couldn't be marked FAILED:`, message, dbErr);
     }
+  } finally {
+    // Whatever the outcome, push any vault edits the task made -- same
+    // persistence-gap fix as the live conversation turn.
+    await syncVaultToGitHub(`Talk to Rey background task ${taskId}: sync vault changes`);
   }
 }
 
