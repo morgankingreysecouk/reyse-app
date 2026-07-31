@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Trash2, RotateCcw, Send, Radio } from "lucide-react";
+import { X, Trash2, RotateCcw, Send, Radio, CheckCircle2, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TopicBadge } from "./topic-badge";
@@ -25,12 +25,14 @@ export function ConversationModal({
   conversation: initial,
   onClose,
   onUpdateNotes,
+  onUpdateStatus,
   onDelete,
   onRestore,
 }: {
   conversation: ConversationWithMessages;
   onClose: () => void;
   onUpdateNotes: (id: string, notes: string) => Promise<void>;
+  onUpdateStatus: (id: string, status: "ACTIVE" | "CLOSED") => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onRestore: (id: string) => Promise<void>;
 }) {
@@ -39,6 +41,8 @@ export function ConversationModal({
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [live, setLive] = useState(false);
+  const [status, setStatus] = useState(initial.status);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const isTrashed = !!initial.deletedAt;
   // Messages this tab just sent optimistically -- the SSE stream echoes
@@ -86,6 +90,17 @@ export function ConversationModal({
     await onUpdateNotes(initial.id, notes);
   };
 
+  const toggleStatus = async () => {
+    const next = status === "ACTIVE" ? "CLOSED" : "ACTIVE";
+    setUpdatingStatus(true);
+    try {
+      await onUpdateStatus(initial.id, next);
+      setStatus(next);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
   const sendReply = async () => {
     const trimmed = reply.trim();
     if (!trimmed || sending) return;
@@ -116,6 +131,7 @@ export function ConversationModal({
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="font-display text-base font-semibold text-ink">Conversation</h2>
             <TopicBadge topic={initial.topic} />
+            <Badge tone={status === "ACTIVE" ? "indigo" : "neutral"}>{status === "ACTIVE" ? "Active" : "Closed"}</Badge>
             {initial.convertedToEnquiry && <Badge tone="success">Converted</Badge>}
             {isTrashed && <span className="text-xs text-danger font-medium">In Trash</span>}
             {!isTrashed && (
@@ -173,15 +189,21 @@ export function ConversationModal({
           </div>
         )}
 
-        <div className="px-5 py-3 border-t border-border shrink-0 flex justify-end">
+        <div className="px-5 py-3 border-t border-border shrink-0 flex justify-end gap-2">
           {isTrashed ? (
             <Button variant="secondary" onClick={async () => { await onRestore(initial.id); onClose(); }}>
               <RotateCcw size={14} /> Restore
             </Button>
           ) : (
-            <Button variant="danger" onClick={async () => { await onDelete(initial.id); onClose(); }}>
-              <Trash2 size={14} /> Delete
-            </Button>
+            <>
+              <Button variant="secondary" onClick={toggleStatus} disabled={updatingStatus}>
+                {status === "ACTIVE" ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                {status === "ACTIVE" ? "Mark as Closed" : "Reopen"}
+              </Button>
+              <Button variant="danger" onClick={async () => { await onDelete(initial.id); onClose(); }}>
+                <Trash2 size={14} /> Delete
+              </Button>
+            </>
           )}
         </div>
       </div>
