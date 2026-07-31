@@ -369,6 +369,38 @@ model AiUsageLog {
   @@map("ra_ai_usage_log")
 }
 
+enum BackgroundTaskStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+
+  @@map("ra_talk_background_task_status")
+}
+
+// A build/research/writing task Talk to Rey queues instead of doing inline,
+// so a live voice conversation isn't blocked waiting on multi-step work.
+// Runs as its own Agent SDK session (own sessionId, scoped to the vault
+// checkout same as the live conversation) via Next's after(). reportedAt
+// tracks whether a finished task has already been mentioned back to Morgan
+// on a later voice turn, so it's surfaced exactly once.
+model BackgroundTask {
+  id            String               @id @default(cuid())
+  prompt        String
+  status        BackgroundTaskStatus @default(PENDING)
+  sessionId     String?
+  resultSummary String?
+  error         String?
+
+  reportedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([reportedAt])
+  @@map("ra_talk_background_task")
+}
+
 // Email Assistant -- full inbox access to Morgan's own Gmail (not a
 // per-client feature). Rey reads the inbox, organises it into folders
 // (Gmail labels), and drafts replies -- never sends. Phase 1 (this build):
@@ -417,8 +449,8 @@ enum MailActivityAction {
 // July 2026) safe to grant: nothing is a black box after the fact, even
 // though nothing needs approval before the fact.
 model MailActivityLog {
-  id     String              @id @default(cuid())
-  action MailActivityAction
+  id      String             @id @default(cuid())
+  action  MailActivityAction
   // Human-readable one-liner for the feed, e.g. "Filed 'Booking.com
   // payout' under Finance" or "Created folder Client Enquiries".
   summary String
