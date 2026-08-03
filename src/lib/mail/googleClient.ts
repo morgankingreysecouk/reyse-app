@@ -27,8 +27,14 @@ export const MAIL_SCOPES = [
 ];
 
 function newOAuthClient() {
-  const clientId = process.env.GMAIL_CLIENT_ID;
-  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  // .trim() is deliberate, not defensive paranoia -- Railway variables
+  // pasted from a browser can pick up an invisible trailing space or
+  // newline that's indistinguishable from correct in the UI, and Google's
+  // client_id matching is exact-string, so a stray trailing character
+  // produces exactly "OAuth client was not found" with an otherwise
+  // correct-looking value.
+  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
     throw new Error("GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET are not set");
   }
