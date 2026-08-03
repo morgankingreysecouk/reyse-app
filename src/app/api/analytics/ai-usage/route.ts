@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 
 export async function GET() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
   const entries = await db.aiUsageLog.findMany({
