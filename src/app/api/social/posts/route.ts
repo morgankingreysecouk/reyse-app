@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 
-// Session-protected (proxy.ts matcher covers everything except /api/public/*
-// and a handful of other paths). List, capped like every other list route
-// in this app -- no pager UI yet.
+// Session check here is belt-and-braces, not the only line of defence --
+// proxy.ts already blocks unauthenticated requests before they reach this
+// handler. Kept explicit anyway, same as every other feature area, since a
+// route file should be safe to read on its own without having to trust the
+// middleware silently did its job.
 export async function GET(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const pillar = searchParams.get("pillar");

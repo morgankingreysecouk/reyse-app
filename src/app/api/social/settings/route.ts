@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import { getOrCreateSettings } from "@/lib/social/postPipeline";
 import { db } from "@/lib/db";
 
 export async function GET() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const settings = await getOrCreateSettings();
   return NextResponse.json({ settings });
 }
 
+// Session check is belt-and-braces here especially -- publishingMode is the
+// one safety-critical control in this feature (REVIEW_QUEUE vs AUTONOMOUS
+// posting to Reyse's real Instagram/Facebook).
 export async function PUT(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();

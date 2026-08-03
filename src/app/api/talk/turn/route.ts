@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { speak } from "@/lib/talk/speak";
 import { talkToolsServer } from "@/lib/talk/tools";
@@ -107,7 +108,13 @@ async function think(userText: string): Promise<string> {
   return resultText;
 }
 
+// Session check is belt-and-braces here especially -- this route runs a
+// full Agent SDK session with bypassPermissions against the real vault
+// checkout, driven by nothing but an audio upload.
 export async function POST(request: Request) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const form = await request.formData();
   const audio = form.get("audio");
   if (!(audio instanceof Blob)) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import { speak } from "@/lib/talk/speak";
 import { isKnownVoice } from "@/lib/talk/voices";
 
@@ -9,6 +10,9 @@ const PREVIEW_LINE = "Hey Morgan, this is what I'll sound like with these settin
 // Generates a sample clip from settings that haven't been saved yet, so a
 // voice/speed change can be heard before committing to it -- no blind saves.
 export async function POST(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();
