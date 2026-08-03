@@ -19,6 +19,11 @@ export async function logAiUsage(entry: {
   inputTokens?: number;
   outputTokens?: number;
   imageCount?: number;
+  // Set only for a Client's own live-chat usage -- lets the per-client cost
+  // panel in the Clients admin UI show real spend against their £99/month
+  // price point. Left undefined for every Reyse-internal feature (Mail,
+  // Social, Talk), which have no client concept.
+  clientId?: string;
 }): Promise<void> {
   let costUsd: number | null = null;
   const pricing = CLAUDE_PRICE_PER_MTOK[entry.model];
@@ -36,6 +41,7 @@ export async function logAiUsage(entry: {
         inputTokens: entry.inputTokens,
         outputTokens: entry.outputTokens,
         imageCount: entry.imageCount,
+        clientId: entry.clientId,
         costUsd,
       },
     });

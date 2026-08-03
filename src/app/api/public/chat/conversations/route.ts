@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { classifyTopic } from "@/lib/chat";
 
+// Transitional only -- this whole /api/public/chat/** family is the
+// pre-multi-client Live Chat path, kept running only until Reyse-Website's
+// widget is cut over to the new embeddable one (see the Live Chat section
+// of CLAUDE.md). Retire this file once that cutover has been live and
+// stable for a few days; do not build anything new against it.
+//
+// The "Reyse" client row seeded by the 20260803120000_add_clients
+// migration -- every conversation created through this legacy route
+// belongs to Reyse itself (the only thing this route was ever used for),
+// same as every pre-migration conversation was backfilled onto it.
+const LEGACY_REYSE_CLIENT_ID = "client_reyse";
+
 // Called once at the start of each website session (server-to-server, same
 // shared-secret pattern as the other public routes) to get a conversation
 // id -- find-or-create by visitorId, a client-generated id stored in the
@@ -38,7 +50,7 @@ export async function POST(request: NextRequest) {
     });
     if (!conversation) {
       conversation = await db.chatConversation.create({
-        data: { visitorId: b.visitorId, topic: classifyTopic(firstMessage) },
+        data: { visitorId: b.visitorId, topic: classifyTopic(firstMessage), clientId: LEGACY_REYSE_CLIENT_ID },
       });
     }
     return NextResponse.json({ conversationId: conversation.id }, { status: 201 });

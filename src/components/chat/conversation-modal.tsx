@@ -7,7 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { TopicBadge } from "./topic-badge";
 import type { ChatConversation, ChatMessage } from "@/generated/prisma/client";
 
-type ConversationWithMessages = ChatConversation & { messages: ChatMessage[] };
+type ConversationWithMessages = ChatConversation & {
+  messages: ChatMessage[];
+  client?: { id: string; businessName: string } | null;
+  property?: { id: string; name: string } | null;
+};
 
 const ROLE_STYLE: Record<string, string> = {
   USER: "bg-surface-raised text-ink rounded-bl-md border border-border-strong self-start",
@@ -129,7 +133,10 @@ export function ConversationModal({
       <div className="w-full max-w-xl rounded-xl border border-border bg-surface shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="font-display text-base font-semibold text-ink">Conversation</h2>
+            <h2 className="font-display text-base font-semibold text-ink">
+              {initial.client?.businessName ?? "Conversation"}
+              {initial.property && <span className="text-ink-muted font-normal"> · {initial.property.name}</span>}
+            </h2>
             <TopicBadge topic={initial.topic} />
             <Badge tone={status === "ACTIVE" ? "indigo" : "neutral"}>{status === "ACTIVE" ? "Active" : "Closed"}</Badge>
             {initial.convertedToEnquiry && <Badge tone="success">Converted</Badge>}

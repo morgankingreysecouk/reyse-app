@@ -8,6 +8,7 @@ import {
   Settings,
   Mic,
   Mail,
+  Building2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -25,6 +26,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "Enquiries", href: "/admin/enquiries", icon: Inbox },
   { label: "Mail", href: "/admin/mail", icon: Mail },
+  { label: "Clients", href: "/admin/clients", icon: Building2 },
   { label: "Live Chat", href: "/admin/live-chat", icon: MessageCircle },
   { label: "Talk to Rey", href: "/admin/talk", icon: Mic },
   { label: "Social", href: "/admin/social", icon: Camera },

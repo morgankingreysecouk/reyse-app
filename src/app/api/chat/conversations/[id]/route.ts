@@ -12,7 +12,11 @@ export async function GET(
 
   const conversation = await db.chatConversation.findUnique({
     where: { id },
-    include: { messages: { orderBy: { createdAt: "asc" } } },
+    include: {
+      messages: { orderBy: { createdAt: "asc" } },
+      client: { select: { id: true, businessName: true } },
+      property: { select: { id: true, name: true } },
+    },
   });
   if (!conversation) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

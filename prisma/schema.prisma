@@ -44,6 +44,13 @@ model Enquiry {
   businessName String
   message      String?
 
+  // Set only for a lead captured through a Client's own chat widget --
+  // permanently nullable, not just during migration. Reyse-Website's own
+  // contact-form enquiries, and anything filed manually from the dashboard,
+  // have no client concept and shouldn't be forced into one.
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
   channel EnquiryChannel @default(WEBSITE)
   status  EnquiryStatus  @default(NEW)
   notes   String?
@@ -71,6 +78,7 @@ model Enquiry {
   @@index([channel])
   @@index([deletedAt])
   @@index([createdAt])
+  @@index([clientId])
   @@map("ra_enquiry")
 }
 
@@ -112,18 +120,38 @@ enum ChatTopic {
 model ChatConversation {
   id String @id @default(cuid())
 
+  // Which client's widget this conversation belongs to -- every conversation
+  // has exactly one, including Reyse's own (see Client's own comment for the
+  // "client zero" framing). Required: a conversation with no owning client
+  // can't be scoped, emailed, or shown anywhere sensible.
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Which of the client's properties this conversation turned out to be
+  // about, once the AI (or the guest directly) made that clear -- null until
+  // resolved, and stays null forever for a client with zero or one property,
+  // since there's nothing to disambiguate. See chatSystemPrompt.ts.
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id])
+
   // Client-generated id stored in the visitor's sessionStorage -- ties every
   // message in one browser session to the same conversation without any
-  // account/login on the visitor's side.
+  // account/login on the visitor's side. Scoped to clientId, not globally
+  // unique -- two different clients' visitors coincidentally generating the
+  // same id is fine, there's zero collision risk between them.
   visitorId String
 
   status ChatConversationStatus @default(ACTIVE)
   topic  ChatTopic              @default(OTHER)
 
-  // Set true the moment the AI's send_enquiry tool actually fires for this
+  // Set true the moment the AI's capture_lead tool actually fires for this
   // conversation -- this is what the conversion-rate stat is measured
-  // against, distinct from whether Morgan has since actioned it.
+  // against, distinct from whether the lead has since been actioned.
   convertedToEnquiry Boolean @default(false)
+
+  // The guest's answer to the post-chat "was this helpful?" prompt --
+  // null means never asked or never answered, not "no."
+  csatHelpful Boolean?
 
   notes String?
 
@@ -141,6 +169,7 @@ model ChatConversation {
   @@index([deletedAt])
   @@index([lastMessageAt])
   @@index([visitorId])
+  @@index([clientId, lastMessageAt])
   @@map("ra_chat_conversation")
 }
 
@@ -170,6 +199,143 @@ model ChatKnowledge {
   updatedBy String?
 
   @@map("ra_chat_knowledge")
+}
+
+// Clients -- each row is a real paying (or trial) Reyse customer whose own
+// site embeds a branded chat widget pointed at their own property details.
+// Everything above this point (ChatConversation/ChatMessage/ChatKnowledge)
+// used to implicitly describe exactly one client, Reyse itself; this is what
+// makes "which client" a real, first-class question the rest of the schema
+// can answer. Not a singleton like SocialSettings/TalkSettings/MailAccount --
+// there are many of these, by design. No client login/portal exists (a
+// deliberate 3 August 2026 decision, matches how Reyse actually sells --
+// personal demo, not self-serve) -- every field here is set and read by
+// Morgan through the admin dashboard, never by the client themselves.
+model Client {
+  id String @id @default(cuid())
+
+  businessName      String
+  contactName       String?
+  // Where a captured lead gets emailed the moment it's captured -- see
+  // leadCapture.ts. Required: a client with nowhere to send a lead defeats
+  // the point of the product.
+  notificationEmail String
+  contactPhone      String?
+
+  // Public, client-side-safe identifier embedded in the widget's own script
+  // tag and used by every /api/public/widget/[widgetKey]/** route to resolve
+  // "which client is this." Deliberately not INTERNAL_API_SECRET or any
+  // other privileged credential -- this key can only ever read this one
+  // client's branding/knowledge and write into this one client's
+  // conversations, never anything with admin power. Regeneratable via
+  // /api/clients/[id]/regenerate-widget-key if it ever ends up somewhere it
+  // shouldn't.
+  widgetKey String @unique @default(cuid())
+
+  // Branding -- white-labelled per client, not a single "Rey" persona reused
+  // everywhere (confirmed with Morgan, 3 August 2026).
+  assistantName String @default("Rey")
+  themeColor    String @default("#312e81")
+  logo          ClientLogo?
+
+  // Domains this client's widget is expected to run on. Best-effort
+  // attribution/abuse-resistance only (Origin/Referer are spoofable and
+  // sometimes simply absent) -- not the real security boundary, which is
+  // widgetKey scoping plus rate limiting. Mismatches get logged, not
+  // hard-blocked.
+  allowedDomains String[] @default([])
+
+  // Freeform notes that apply at the business level regardless of which
+  // property a guest is asking about -- or the only content at all, for a
+  // client with zero Property rows. This is where Reyse's own "about us /
+  // pricing / how it works" content lives once Reyse becomes a client of its
+  // own system (see chatSystemPrompt.ts for how zero/one/many Property rows
+  // are handled as one code path).
+  additionalNotes String?
+
+  // Proactive engagement (time-on-page nudge) -- default on, per-client
+  // configurable since not every client will want it.
+  proactiveEnabled      Boolean @default(true)
+  proactiveDelaySeconds Int     @default(30)
+  proactiveMessage      String?
+
+  // Cached AI-generated suggested opening questions, shown before a guest's
+  // first message. Regenerated explicitly (end of onboarding + a manual
+  // button in the admin UI), not on every save, to keep cost predictable.
+  starterQuestions String[] @default([])
+
+  // Pause a client's widget without losing their data -- distinct from
+  // deletedAt, which is a real soft-delete.
+  enabled   Boolean   @default(true)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  properties    Property[]
+  conversations ChatConversation[]
+  enquiries     Enquiry[]
+  aiUsageLogs   AiUsageLog[]
+
+  @@index([deletedAt])
+  @@index([widgetKey])
+  @@map("ra_client")
+}
+
+// One row per property a client manages -- most clients will have exactly
+// one, some manage a handful. When a client has more than one, the chat
+// system prompt lists them all and asks the AI to work out which one a guest
+// means before answering property-specific questions; ChatConversation's
+// propertyId records the answer once resolved. All fields optional except
+// name -- a client fills in whatever they actually know during onboarding,
+// nothing blocks the AI from working with a partially-filled property.
+model Property {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // How both the admin UI and the AI itself refer to/disambiguate this
+  // property, e.g. "Seaview Cottage".
+  name               String
+  address            String?
+  checkInTime        String?
+  checkOutTime       String?
+  amenities          String[] @default([])
+  houseRules         String?
+  petPolicy          String?
+  parkingInfo        String?
+  wifiInfo           String?
+  localTips          String?
+  cancellationPolicy String?
+  // The freeform "anything else" box from the guided onboarding form.
+  additionalNotes    String?
+
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversations ChatConversation[]
+
+  @@index([clientId, deletedAt])
+  @@map("ra_property")
+}
+
+// A client's logo image, kept in its own table for the same reason
+// SocialAsset is separate from SocialPost -- Client gets read on essentially
+// every widget request, and a Bytes payload shouldn't silently ride along on
+// a query that doesn't need it. Served publicly the same way
+// social/assets/[id]/route.ts already does, at
+// /api/public/widget/[widgetKey]/logo.
+model ClientLogo {
+  id       String @id @default(cuid())
+  clientId String @unique
+  client   Client @relation(fields: [clientId], references: [id])
+  data     Bytes
+  mimeType String
+
+  updatedAt DateTime @updatedAt
+
+  @@map("ra_client_logo")
 }
 
 // Social Media Automation -- generates and posts single/carousel content to
@@ -362,10 +528,18 @@ model AiUsageLog {
   imageCount   Int?
   costUsd      Float?
 
+  // Set only for feature: "live-chat" entries tied to a specific Client --
+  // permanently nullable, everything else (Mail, Social, Talk) logs with no
+  // client concept and shouldn't be forced into one. This is what makes real
+  // per-client cost tracking against the £99/month price point possible.
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
   createdAt DateTime @default(now())
 
   @@index([feature, createdAt])
   @@index([createdAt])
+  @@index([clientId, createdAt])
   @@map("ra_ai_usage_log")
 }
 

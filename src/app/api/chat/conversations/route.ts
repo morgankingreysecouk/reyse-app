@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const topic = searchParams.get("topic");
+  const clientId = searchParams.get("clientId");
   const includeDeleted = searchParams.get("trash") === "true";
 
   const where: Prisma.ChatConversationWhereInput = {
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
   };
   if (status) where.status = status as Prisma.EnumChatConversationStatusFilter["equals"];
   if (topic) where.topic = topic as Prisma.EnumChatTopicFilter["equals"];
+  if (clientId) where.clientId = clientId;
 
   const conversations = await db.chatConversation.findMany({
     where,
@@ -25,6 +27,8 @@ export async function GET(request: NextRequest) {
     include: {
       messages: { orderBy: { createdAt: "asc" }, take: 1 },
       _count: { select: { messages: true } },
+      client: { select: { id: true, businessName: true } },
+      property: { select: { id: true, name: true } },
     },
   });
 

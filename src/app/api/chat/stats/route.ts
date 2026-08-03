@@ -1,12 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 
-const REAL_FILTER = { deletedAt: null } as const;
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const clientId = request.nextUrl.searchParams.get("clientId");
+  const realFilter = { deletedAt: null, ...(clientId ? { clientId } : {}) };
 
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -14,15 +15,15 @@ export async function GET() {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
   const [totalCount, last7DaysCount, convertedCount, topicCounts, recentMessages] = await Promise.all([
-    db.chatConversation.count({ where: REAL_FILTER }),
-    db.chatConversation.count({ where: { ...REAL_FILTER, createdAt: { gte: sevenDaysAgo } } }),
-    db.chatConversation.count({ where: { ...REAL_FILTER, convertedToEnquiry: true } }),
-    db.chatConversation.groupBy({ by: ["topic"], where: REAL_FILTER, _count: true }),
+    db.chatConversation.count({ where: realFilter }),
+    db.chatConversation.count({ where: { ...realFilter, createdAt: { gte: sevenDaysAgo } } }),
+    db.chatConversation.count({ where: { ...realFilter, convertedToEnquiry: true } }),
+    db.chatConversation.groupBy({ by: ["topic"], where: realFilter, _count: true }),
     db.chatMessage.findMany({
       where: {
         createdAt: { gte: thirtyDaysAgo },
         role: { in: ["USER", "ASSISTANT"] },
-        conversation: REAL_FILTER,
+        conversation: realFilter,
       },
       select: { conversationId: true, role: true, createdAt: true },
       orderBy: [{ conversationId: "asc" }, { createdAt: "asc" }],
