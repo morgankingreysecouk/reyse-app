@@ -122,16 +122,47 @@ async function generateNewPostPairUnlocked(pillarOverride?: string): Promise<{ g
   return { groupId };
 }
 
+// Guards against the same post being published twice concurrently.
+// Confirmed as a real bug 31 July 2026: Instagram's publish flow (create
+// container, poll until ready, publish) takes real time, and the caller's
+// "is this already published?" check only looks at the DB status at the
+// moment of the click. If a first publish was still mid-flight -- e.g. its
+// response got lost to a network blip, and the caller retried thinking it
+// had failed -- the status hadn't been written back to PUBLISHED yet, so
+// the check passed and a second full Graph API publish fired, creating a
+// second real live post with no way for the app to track the first one's
+// ID once it was overwritten. A per-postId in-memory lock is enough here
+// since this runs as a single persistent Node process (same reasoning as
+// the generation lock above); would need a real distributed lock if this
+// ever ran multi-instance.
+const publishingLocks = new Set<string>();
+
 // Publishes a single post row (one platform) via the appropriate Graph API
 // client. Never throws -- failures are recorded on the row itself (status
 // FAILED + failureReason) so a scheduler loop or an admin "publish now"
 // action can surface the error without crashing the caller.
 export async function publishPost(postId: string): Promise<void> {
+  if (publishingLocks.has(postId)) {
+    console.warn(`publishPost(${postId}) called while a publish for this post is already in flight -- ignoring.`);
+    return;
+  }
+  publishingLocks.add(postId);
+  try {
+    await publishPostUnlocked(postId);
+  } finally {
+    publishingLocks.delete(postId);
+  }
+}
+
+async function publishPostUnlocked(postId: string): Promise<void> {
   const post = await db.socialPost.findUnique({
     where: { id: postId },
     include: { images: { orderBy: { order: "asc" } } },
   });
   if (!post || post.deletedAt) return;
+  // Re-checked here, inside the lock, not just by the caller before it was
+  // acquired -- closes the exact race that caused the duplicate posts.
+  if (post.status === "PUBLISHED") return;
 
   try {
     const images = post.images.map((img) => ({ assetId: img.assetId }));
