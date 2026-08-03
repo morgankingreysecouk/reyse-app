@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await connectAccount(code);
+    await connectAccount(code, request.nextUrl.origin);
     mailUrl.searchParams.set("connected", "true");
   } catch (err) {
     mailUrl.searchParams.set("connectError", err instanceof Error ? err.message : "Connection failed");

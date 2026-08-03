@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    return NextResponse.redirect(getConsentUrl());
+    return NextResponse.redirect(getConsentUrl(request.nextUrl.origin));
   } catch (err) {
     // Most likely cause: GMAIL_CLIENT_ID/SECRET not set on this deploy yet.
     // Send Morgan back to the Mail page with a plain-language reason
