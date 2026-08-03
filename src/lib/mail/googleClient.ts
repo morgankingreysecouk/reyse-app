@@ -10,10 +10,16 @@ const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "https://reyse-app-produc
 // deliberately separate from GOOGLE_CLIENT_ID/SECRET, which handle
 // dashboard sign-in. Keeping them apart means nothing this feature does can
 // ever affect Morgan's ability to log in.
-const CLIENT_ID = process.env.GMAIL_CLIENT_ID;
-const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
-const REDIRECT_URI = `${PUBLIC_BASE_URL}/api/mail/callback`;
-
+//
+// Read from process.env fresh inside the function, not cached into a
+// module-level const -- Railway's persistent Node process loads this
+// module exactly once at boot, so a top-level const would freeze in
+// whatever value existed at that instant. On a platform where a variable
+// can be saved slightly before or during a container's startup, that's a
+// real, hard-to-diagnose staleness risk: every request forever would carry
+// an empty client_id no matter how many times the variable is re-saved,
+// until the process happens to restart again. Reading live removes the
+// risk entirely rather than hoping timing works out.
 export const MAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.labels",
   "https://www.googleapis.com/auth/gmail.modify",
@@ -21,10 +27,13 @@ export const MAIL_SCOPES = [
 ];
 
 function newOAuthClient() {
-  if (!CLIENT_ID || !CLIENT_SECRET) {
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
     throw new Error("GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET are not set");
   }
-  return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+  const redirectUri = `${PUBLIC_BASE_URL}/api/mail/callback`;
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
 export function getConsentUrl(): string {
