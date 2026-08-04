@@ -257,6 +257,14 @@ model SocialPost {
   reviewedAt DateTime?
   reviewedBy String?
 
+  // Morgan's own quality rating/notes on this specific post, independent of
+  // its publish status -- lets him review the whole history (not just the
+  // pending queue) and build up a record of what's actually working, not
+  // just what got approved. 1-10, nullable since most posts start unrated.
+  rating       Int?
+  ratingNote   String?
+  ratedAt      DateTime?
+
   // Soft delete only -- same pattern as every other feature this session,
   // never hard-deleted from the UI, always recoverable via restore.
   deletedAt DateTime?
