@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Camera, Trash2, Settings, Sparkles, BookOpen, ChevronDown } from "lucide-react";
+import Link from "next/link";
+import { Camera, Trash2, Settings, Sparkles, BookOpen, ChevronDown, History } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SocialStatsBar, type SocialStats } from "@/components/social/stats-bar";
@@ -135,6 +136,12 @@ export default function InstagramPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Link
+            href="/admin/social/history"
+            className="inline-flex items-center justify-center gap-1.5 font-medium transition-colors h-8 px-3 text-sm rounded-md bg-surface-raised text-ink border border-border-strong hover:border-ink-faint"
+          >
+            <History size={14} /> History
+          </Link>
           <Button variant="secondary" size="sm" onClick={openKnowledge}>
             <BookOpen size={14} /> Edit knowledge base
           </Button>
