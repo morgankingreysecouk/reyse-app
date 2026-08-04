@@ -1,6 +1,22 @@
 import { google } from "googleapis";
+import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { decryptToken, encryptToken } from "./crypto";
+
+// Railway (like most platforms) terminates HTTPS at its edge and forwards
+// to this app over plain HTTP internally -- request.nextUrl.protocol
+// reflects that raw internal connection, not what the browser actually
+// used. Without this, the OAuth redirect_uri silently comes out as
+// "http://app.reyse.co.uk/..." while Google has "https://..." registered:
+// same host, wrong scheme, a real redirect_uri_mismatch even though
+// everything else lines up. x-forwarded-proto carries the real, original
+// scheme; only fall back to the raw connection's protocol if that header
+// is somehow missing (e.g. genuinely local dev).
+export function getRequestBaseUrl(request: NextRequest): string {
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const protocol = forwardedProto ?? request.nextUrl.protocol.replace(":", "");
+  return `${protocol}://${request.nextUrl.host}`;
+}
 
 // Dedicated OAuth client ("Reyse Mail Assistant", Internal audience) --
 // deliberately separate from GOOGLE_CLIENT_ID/SECRET, which handle
