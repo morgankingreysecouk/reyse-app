@@ -5,6 +5,7 @@ import { generateValidatedPost } from "./captionGenerator";
 import { generateAndStoreImage } from "./imageGenerator";
 import { TEMPLATE_LAYOUTS } from "./templateRenderer";
 import { nextOptimalTime } from "./postingTime";
+import { getRecentFeedback } from "./feedback";
 import { publishToInstagram, publishToFacebook } from "./graphApi";
 import type { SocialPlatform, SocialImageSource } from "@/generated/prisma/client";
 
@@ -59,8 +60,11 @@ async function generateNewPostPairUnlocked(pillarOverride?: string): Promise<{ g
   const pillar = (pillarOverride as Parameters<typeof planPost>[0]) || nextPillar(totalPairs);
   const plan = planPost(pillar);
   const knowledge = await getKnowledge();
+  // Pulled fresh on every generation, not cached -- feedback left on the
+  // history page minutes ago should shape the very next post generated.
+  const pastFeedback = await getRecentFeedback();
 
-  const generated = await generateValidatedPost({ pillar, plan, knowledge: knowledge.content });
+  const generated = await generateValidatedPost({ pillar, plan, knowledge: knowledge.content, pastFeedback });
 
   // Picked once per post/carousel, not per slide -- a carousel's template
   // slides need to look like one consistent design, while different posts
