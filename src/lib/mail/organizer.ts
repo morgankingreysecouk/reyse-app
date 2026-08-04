@@ -15,6 +15,11 @@ export interface InboxMessage {
   // become a real move (remove these, add the new ones) instead of only
   // ever piling a label on top.
   currentFolders: Folder[];
+  // Whether the message is still sitting in the primary inbox -- INBOX is
+  // a system label excluded from currentFolders, so this is tracked
+  // separately and used to actually archive it out on filing (Gmail's
+  // standard "move to folder" behaviour).
+  inInbox: boolean;
 }
 
 interface ClassificationResult {
@@ -141,6 +146,6 @@ export async function organizeMessages(
       .filter((f): f is Folder => Boolean(f));
     if (folders.length === 0) continue;
 
-    await refileMessage(gmail, message.id, message.subject, message.currentFolders, folders);
+    await refileMessage(gmail, message.id, message.subject, message.currentFolders, folders, message.inInbox);
   }
 }

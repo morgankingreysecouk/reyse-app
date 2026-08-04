@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { publishPost } from "@/lib/social/postPipeline";
 import { deleteFromInstagram, deleteFromFacebook } from "@/lib/social/graphApi";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id } = await params;
   const post = await db.socialPost.findUnique({
     where: { id },
@@ -16,8 +20,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 // One flexible endpoint for both plain edits (caption/hashtags) and status
 // transitions (approve/reject/publish_now/undo) -- they're all "update this
 // post", and splitting each transition into its own route would just be
-// more files for the same session-protected surface.
+// more files for the same session-protected surface. Session check is
+// belt-and-braces here especially -- publish_now and undo make real calls
+// to the live Instagram/Facebook APIs.
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id } = await params;
 
   let body: unknown;
@@ -123,6 +132,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 // "undo" first to actually remove it from the platform; delete here just
 // hides the local record.
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id } = await params;
   const post = await db.socialPost.findUnique({ where: { id } });
   if (!post) return NextResponse.json({ error: "Not found" }, { status: 404 });

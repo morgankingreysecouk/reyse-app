@@ -76,6 +76,15 @@ export default function LiveChatPage() {
     await load();
   };
 
+  const handleUpdateStatus = async (id: string, status: "ACTIVE" | "CLOSED") => {
+    await fetch(`/api/chat/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    await load();
+  };
+
   const handleDelete = async (id: string) => {
     await fetch(`/api/chat/conversations/${id}`, { method: "DELETE" });
     await load();
@@ -211,6 +220,7 @@ export default function LiveChatPage() {
           conversation={selected}
           onClose={() => setSelected(null)}
           onUpdateNotes={handleUpdateNotes}
+          onUpdateStatus={handleUpdateStatus}
           onDelete={handleDelete}
           onRestore={handleRestore}
         />

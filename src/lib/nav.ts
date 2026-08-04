@@ -17,10 +17,10 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-// Foundation shell — one entry per eventual product area. Pages are
-// placeholders until each workflow gets built out for real. All dashboard
-// routes live under /admin (22 July 2026, Morgan's call) rather than at
-// the site root.
+// One entry per product area. All dashboard routes live under /admin (22
+// July 2026, Morgan's call) rather than at the site root. Leads is the only
+// one still a placeholder (src/app/admin/leads/page.tsx) -- everything
+// else routes to a real, built feature.
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "Enquiries", href: "/admin/enquiries", icon: Inbox },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getConsentUrl } from "@/lib/mail/googleClient";
+import { getConsentUrl, getRequestBaseUrl } from "@/lib/mail/googleClient";
 
 // Kicks off the one-time Google consent flow for the dedicated
 // "Reyse Mail Assistant" OAuth client. Session check here is belt-and-
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    return NextResponse.redirect(getConsentUrl());
+    return NextResponse.redirect(getConsentUrl(getRequestBaseUrl(request)));
   } catch (err) {
     // Most likely cause: GMAIL_CLIENT_ID/SECRET not set on this deploy yet.
     // Send Morgan back to the Mail page with a plain-language reason

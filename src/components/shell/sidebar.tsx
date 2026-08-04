@@ -46,8 +46,8 @@ export function Sidebar() {
 
       <div className="px-3 py-4 border-t border-border">
         <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2.5 text-xs text-ink-muted">
-          Foundation build — most sections are placeholders while the real
-          workflows get rebuilt one at a time.
+          Leads is the one section still to be built — everything else here
+          is live.
         </div>
       </div>
     </aside>

@@ -113,7 +113,7 @@ export function PostModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-3xl rounded-xl border border-border bg-surface shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
+      <div className="w-full max-w-4xl rounded-xl border border-border bg-surface shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="font-display text-base font-semibold text-ink mr-1">Post</h2>
@@ -125,14 +125,16 @@ export function PostModal({
           </button>
         </div>
 
-        {group.length > 1 && (
-          <div className="flex items-center gap-1.5 px-5 pt-3 shrink-0">
+        {group.length > 1 ? (
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface-raised/40 shrink-0">
             {group.map((p, i) => (
               <button
                 key={p.id}
                 onClick={() => selectPlatform(i)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium transition-colors ${
-                  i === activeIndex ? "border-indigo bg-indigo/10" : "border-border-strong text-ink-muted hover:text-ink"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
+                  i === activeIndex
+                    ? "border-indigo bg-indigo/15 text-ink"
+                    : "border-border-strong text-ink-muted hover:text-ink hover:border-ink-faint"
                 }`}
               >
                 <PlatformBadge platform={p.platform} />
@@ -140,15 +142,14 @@ export function PostModal({
               </button>
             ))}
           </div>
-        )}
-        {group.length === 1 && (
-          <div className="flex items-center gap-2 px-5 pt-3 shrink-0">
+        ) : (
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-surface-raised/40 shrink-0">
             <PlatformBadge platform={post.platform} />
             <StatusBadge status={post.status} />
           </div>
         )}
 
-        <div className="overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-5 p-5">
+        <div className="overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 p-5">
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <div className="inline-flex rounded-md border border-border-strong overflow-hidden">
@@ -238,39 +239,48 @@ export function PostModal({
             )}
           </div>
 
-          <div className="flex flex-col gap-4">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted mb-1.5">
-                {post.platform === "INSTAGRAM" ? "Instagram" : "Facebook"} caption
-              </p>
-              <textarea
-                rows={8}
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                disabled={isTrashed || busy}
-                className="w-full px-3 py-2 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none focus:border-indigo resize-none disabled:opacity-50"
-              />
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+                    {post.platform === "INSTAGRAM" ? "Instagram" : "Facebook"} caption
+                  </p>
+                  {dirty && !isTrashed && (
+                    <button
+                      onClick={saveEdits}
+                      disabled={busy}
+                      className="text-[11px] font-medium text-indigo hover:text-indigo/80 disabled:opacity-50"
+                    >
+                      Save edits
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  rows={12}
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  disabled={isTrashed || busy}
+                  className="w-full px-3 py-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink leading-relaxed outline-none focus:border-indigo resize-none disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-ink-muted mb-1.5">Hashtags</p>
+                <input
+                  value={hashtagText}
+                  onChange={(e) => setHashtagText(e.target.value)}
+                  disabled={isTrashed || busy}
+                  placeholder="hashtag1 hashtag2 hashtag3"
+                  className="w-full h-9 px-3 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none focus:border-indigo disabled:opacity-50"
+                />
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted mb-1.5">Hashtags</p>
-              <input
-                value={hashtagText}
-                onChange={(e) => setHashtagText(e.target.value)}
-                disabled={isTrashed || busy}
-                placeholder="hashtag1 hashtag2 hashtag3"
-                className="w-full h-9 px-3 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none focus:border-indigo disabled:opacity-50"
-              />
-            </div>
-            {dirty && !isTrashed && (
-              <Button size="sm" variant="secondary" onClick={saveEdits} disabled={busy}>
-                Save edits
-              </Button>
-            )}
 
             {error && <p className="text-xs text-danger">{error}</p>}
 
             {!isTrashed && post.status === "DRAFT" && (
-              <div className="flex flex-col gap-2 pt-2 border-t border-border">
+              <div className="flex flex-col gap-3 pt-4 border-t border-border">
+                <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Schedule</p>
                 <div className="flex items-center gap-2">
                   <input
                     type="datetime-local"
@@ -281,26 +291,28 @@ export function PostModal({
                   <Button
                     size="sm"
                     variant="secondary"
+                    className="shrink-0 whitespace-nowrap"
                     onClick={() => setScheduledFor(toDatetimeLocalValue(nextOptimalTime(new Date())))}
                     disabled={busy}
                   >
                     Best time
                   </Button>
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      patch({ action: "approve", scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : undefined })
-                    }
-                    disabled={busy}
-                  >
-                    <Check size={14} /> Approve &amp; schedule
-                  </Button>
                 </div>
-                <p className="text-[11px] text-ink-muted">
+                <p className="text-[11px] text-ink-muted leading-relaxed">
                   Leave the date blank to schedule for right away, or use &quot;Best time&quot; to pick the next good UK
                   engagement window (late morning, lunch, or evening).
                 </p>
-                <div className="flex items-center gap-2">
+                <Button
+                  className="w-full whitespace-nowrap"
+                  onClick={() =>
+                    patch({ action: "approve", scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString() : undefined })
+                  }
+                  disabled={busy}
+                >
+                  <Check size={14} /> Approve &amp; schedule
+                </Button>
+
+                <div className="flex items-center gap-2 pt-1">
                   <Button size="sm" variant="secondary" onClick={() => patch({ action: "publish_now" })} disabled={busy}>
                     <Send size={14} /> Publish now
                   </Button>
@@ -327,7 +339,7 @@ export function PostModal({
             )}
 
             {!isTrashed && post.status === "SCHEDULED" && (
-              <div className="flex items-center gap-2 pt-2 border-t border-border">
+              <div className="flex items-center gap-2 pt-4 border-t border-border">
                 <Button size="sm" variant="secondary" onClick={() => patch({ action: "publish_now" })} disabled={busy}>
                   <Send size={14} /> Publish now
                 </Button>
@@ -338,7 +350,7 @@ export function PostModal({
             )}
 
             {!isTrashed && post.status === "FAILED" && (
-              <div className="flex items-center gap-2 pt-2 border-t border-border">
+              <div className="flex items-center gap-2 pt-4 border-t border-border">
                 <Button size="sm" onClick={() => patch({ action: "publish_now" })} disabled={busy}>
                   <Send size={14} /> Retry publish
                 </Button>
@@ -346,7 +358,7 @@ export function PostModal({
             )}
 
             {!isTrashed && post.status === "PUBLISHED" && (
-              <div className="flex items-center gap-2 pt-2 border-t border-border">
+              <div className="flex items-center gap-2 pt-4 border-t border-border">
                 <Button size="sm" variant="danger" onClick={() => patch({ action: "undo" })} disabled={busy}>
                   <Undo2 size={14} /> Undo (remove from {post.platform === "INSTAGRAM" ? "Instagram" : "Facebook"})
                 </Button>

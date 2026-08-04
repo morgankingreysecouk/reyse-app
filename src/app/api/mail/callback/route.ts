@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { connectAccount } from "@/lib/mail/googleClient";
+import { connectAccount, getRequestBaseUrl } from "@/lib/mail/googleClient";
 
 // Google redirects the browser here after Morgan approves (or denies)
 // access. Still an authenticated browser navigation with the normal
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await connectAccount(code);
+    await connectAccount(code, getRequestBaseUrl(request));
     mailUrl.searchParams.set("connected", "true");
   } catch (err) {
     mailUrl.searchParams.set("connectError", err instanceof Error ? err.message : "Connection failed");

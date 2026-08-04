@@ -16,6 +16,8 @@ interface FeatureUsage {
 const FEATURE_LABEL: Record<string, string> = {
   "social-caption": "Social captions (Claude)",
   "social-image": "Social AI photography (Replicate)",
+  "live-chat": "Live chat (Claude)",
+  "mail-organizer": "Mail organiser (Claude)",
 };
 
 export default function AnalyticsPage() {
@@ -23,17 +25,23 @@ export default function AnalyticsPage() {
   const [totalCalls, setTotalCalls] = useState(0);
   const [byFeature, setByFeature] = useState<FeatureUsage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/analytics/ai-usage");
-    if (res.ok) {
+    setError(null);
+    try {
+      const res = await fetch("/api/analytics/ai-usage");
+      if (!res.ok) throw new Error("Request failed");
       const data = await res.json();
       setTotalCostUsd(data.totalCostUsd);
       setTotalCalls(data.totalCalls);
       setByFeature(data.byFeature);
+    } catch {
+      setError("Couldn't load usage data. Try refreshing.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -65,6 +73,8 @@ export default function AnalyticsPage() {
       <Card>
         {loading ? (
           <div className="p-8 text-center text-sm text-ink-muted">Loading...</div>
+        ) : error ? (
+          <div className="p-8 text-center text-sm text-danger">{error}</div>
         ) : byFeature.length === 0 ? (
           <div className="p-8 text-center text-sm text-ink-muted">No AI usage logged in the last 30 days.</div>
         ) : (

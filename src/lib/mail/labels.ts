@@ -74,30 +74,51 @@ export async function refileMessage(
   subject: string,
   currentFolders: Folder[],
   targetFolders: Folder[],
+  inInbox: boolean,
 ): Promise<void> {
   const currentIds = new Set(currentFolders.map((f) => f.id));
   const targetIds = new Set(targetFolders.map((f) => f.id));
 
   const toAdd = targetFolders.filter((f) => !currentIds.has(f.id));
   const toRemove = currentFolders.filter((f) => !targetIds.has(f.id));
+  const removeLabelIds = toRemove.map((f) => f.id);
+  // Filing should also get a message out of the primary inbox view --
+  // Gmail's standard "move to folder" behaviour, confirmed with Morgan 31
+  // July 2026, not just tagging it. INBOX is a system label, deliberately
+  // excluded from currentFolders/targetFolders (see isFolderLabel above),
+  // so it can't be picked up by the folder diff above and is handled here
+  // instead. Gated on inInbox rather than removed unconditionally so an
+  // already-archived message that only needs a folder change doesn't get
+  // a pointless extra removeLabelIds call every tick.
+  if (inInbox) removeLabelIds.push("INBOX");
 
-  if (toAdd.length === 0 && toRemove.length === 0) return; // already correctly filed
+  if (toAdd.length === 0 && removeLabelIds.length === 0) return; // already correctly filed
 
   await gmail.users.messages.modify({
     userId: "me",
     id: messageId,
     requestBody: {
       addLabelIds: toAdd.map((f) => f.id),
-      removeLabelIds: toRemove.map((f) => f.id),
+      removeLabelIds,
     },
   });
 
   const targetList = targetFolders.map((f) => `"${f.name}"`).join(", ");
+  const folderSetChanged = toAdd.length > 0 || toRemove.length > 0;
   if (currentFolders.length === 0) {
-    await log("MESSAGE_FILED", `Filed "${subject}" under ${targetList}`);
+    const suffix = inInbox ? " (archived out of inbox)" : "";
+    await log("MESSAGE_FILED", `Filed "${subject}" under ${targetList}${suffix}`);
+  } else if (!folderSetChanged) {
+    // Very common on the first backfill sweep: mail filed correctly before
+    // this feature existed, sitting in the right folder already, but never
+    // archived out of the inbox since that behaviour didn't exist yet.
+    // Worth its own message -- "moved from Y to Y" would be a confusing
+    // way to describe "no folder change, just archived."
+    await log("MESSAGE_MOVED", `Archived "${subject}" out of the inbox (already correctly filed under ${targetList})`);
   } else {
     const fromList = currentFolders.map((f) => `"${f.name}"`).join(", ");
-    await log("MESSAGE_MOVED", `Moved "${subject}" from ${fromList} to ${targetList}`);
+    const suffix = inInbox ? ", and archived out of the inbox" : "";
+    await log("MESSAGE_MOVED", `Moved "${subject}" from ${fromList} to ${targetList}${suffix}`);
   }
 }
 

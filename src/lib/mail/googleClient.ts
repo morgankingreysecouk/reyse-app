@@ -1,34 +1,69 @@
 import { google } from "googleapis";
+import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { decryptToken, encryptToken } from "./crypto";
 
-// Same "reyse-app-production.up.railway.app until app.reyse.co.uk is
-// properly attached" workaround used by the social feature's graphApi.ts.
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "https://reyse-app-production.up.railway.app";
+// Railway (like most platforms) terminates HTTPS at its edge and forwards
+// to this app over plain HTTP internally -- request.nextUrl.protocol
+// reflects that raw internal connection, not what the browser actually
+// used. Without this, the OAuth redirect_uri silently comes out as
+// "http://app.reyse.co.uk/..." while Google has "https://..." registered:
+// same host, wrong scheme, a real redirect_uri_mismatch even though
+// everything else lines up. x-forwarded-proto carries the real, original
+// scheme; only fall back to the raw connection's protocol if that header
+// is somehow missing (e.g. genuinely local dev).
+export function getRequestBaseUrl(request: NextRequest): string {
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const protocol = forwardedProto ?? request.nextUrl.protocol.replace(":", "");
+  return `${protocol}://${request.nextUrl.host}`;
+}
 
 // Dedicated OAuth client ("Reyse Mail Assistant", Internal audience) --
 // deliberately separate from GOOGLE_CLIENT_ID/SECRET, which handle
 // dashboard sign-in. Keeping them apart means nothing this feature does can
 // ever affect Morgan's ability to log in.
-const CLIENT_ID = process.env.GMAIL_CLIENT_ID;
-const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
-const REDIRECT_URI = `${PUBLIC_BASE_URL}/api/mail/callback`;
-
+//
+// Read from process.env fresh inside the function, not cached into a
+// module-level const -- Railway's persistent Node process loads this
+// module exactly once at boot, so a top-level const would freeze in
+// whatever value existed at that instant. On a platform where a variable
+// can be saved slightly before or during a container's startup, that's a
+// real, hard-to-diagnose staleness risk: every request forever would carry
+// an empty client_id no matter how many times the variable is re-saved,
+// until the process happens to restart again. Reading live removes the
+// risk entirely rather than hoping timing works out.
 export const MAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.labels",
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.compose",
 ];
 
-function newOAuthClient() {
-  if (!CLIENT_ID || !CLIENT_SECRET) {
+// baseUrl comes from the actual incoming request (request.nextUrl.origin),
+// not a separately-configured env var -- a static PUBLIC_BASE_URL drifts
+// the moment the app becomes reachable at more than one hostname (Railway's
+// own URL, then app.reyse.co.uk once attached), and Google requires the
+// redirect_uri used here to exactly match the one used at token-exchange
+// time. Deriving both from whatever domain actually served the request
+// keeps them correct by construction, for any domain, with nothing to
+// misconfigure.
+function newOAuthClient(baseUrl: string) {
+  // .trim() is deliberate, not defensive paranoia -- Railway variables
+  // pasted from a browser can pick up an invisible trailing space or
+  // newline that's indistinguishable from correct in the UI, and Google's
+  // client_id matching is exact-string, so a stray trailing character
+  // produces exactly "OAuth client was not found" with an otherwise
+  // correct-looking value.
+  const clientId = process.env.GMAIL_CLIENT_ID?.trim();
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
     throw new Error("GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET are not set");
   }
-  return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+  const redirectUri = `${baseUrl}/api/mail/callback`;
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function getConsentUrl(): string {
-  const client = newOAuthClient();
+export function getConsentUrl(baseUrl: string): string {
+  const client = newOAuthClient(baseUrl);
   return client.generateAuthUrl({
     access_type: "offline",
     // Internal + Workspace-confirmed audience means this is a one-time
@@ -39,8 +74,8 @@ export function getConsentUrl(): string {
   });
 }
 
-export async function connectAccount(code: string): Promise<string> {
-  const client = newOAuthClient();
+export async function connectAccount(code: string, baseUrl: string): Promise<string> {
+  const client = newOAuthClient(baseUrl);
   const { tokens } = await client.getToken(code);
   if (!tokens.refresh_token) {
     throw new Error(
@@ -83,7 +118,12 @@ export async function getAuthorizedGmailClient() {
   const account = await db.mailAccount.findUnique({ where: { id: "singleton" } });
   if (!account) return null;
 
-  const client = newOAuthClient();
+  // Called from the background scheduler, with no incoming request to
+  // derive a real origin from -- fine, because Google never actually
+  // validates redirect_uri when refreshing an existing token with it, only
+  // during the original authorization-code exchange. Any well-formed value
+  // works here; it's never sent anywhere meaningful.
+  const client = newOAuthClient("https://unused.invalid");
   const refreshToken = decryptToken({
     ciphertext: account.refreshTokenCiphertext,
     iv: account.refreshTokenIv,

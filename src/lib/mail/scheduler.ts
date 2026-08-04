@@ -42,7 +42,8 @@ function toInboxMessage(raw: RawMessage, folderById: Map<string, Folder>): Inbox
     .filter(isFolderLabel)
     .map((id) => folderById.get(id))
     .filter((f): f is Folder => Boolean(f));
-  return { id: raw.id, subject: raw.subject, from: raw.from, snippet: raw.snippet, currentFolders };
+  const inInbox = raw.labelIds.includes("INBOX");
+  return { id: raw.id, subject: raw.subject, from: raw.from, snippet: raw.snippet, currentFolders, inInbox };
 }
 
 async function scanRecentInbox(gmail: gmail_v1.Gmail): Promise<string[]> {
