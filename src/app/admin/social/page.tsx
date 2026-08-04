@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Camera, Trash2, Settings, Sparkles, BookOpen } from "lucide-react";
+import { Camera, Trash2, Settings, Sparkles, BookOpen, ChevronDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SocialStatsBar, type SocialStats } from "@/components/social/stats-bar";
@@ -123,14 +123,16 @@ export default function InstagramPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-xl font-semibold text-ink flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo to-indigo-deep text-white shadow-[0_4px_16px_-4px_rgba(99,102,241,0.6)]">
             <Camera size={20} />
-            Social
-          </h1>
-          <p className="text-sm text-ink-muted mt-1">
-            AI-generated Instagram and Facebook posts promoting Reyse -- single posts and carousels, reviewed here before anything goes live.
-          </p>
+          </span>
+          <div>
+            <h1 className="font-display text-xl font-semibold text-ink">Social</h1>
+            <p className="text-sm text-ink-muted mt-0.5">
+              AI-generated Instagram and Facebook posts promoting Reyse -- reviewed here before anything goes live.
+            </p>
+          </div>
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={openKnowledge}>
@@ -153,36 +155,39 @@ export default function InstagramPage() {
         </Card>
       )}
 
-      <Card className="p-3 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1 flex-wrap">
+      <Card className="p-2.5 flex flex-wrap items-center gap-2.5">
+        <div className="flex items-center gap-0.5 flex-wrap bg-surface-raised/60 rounded-lg p-1">
           {STATUS_TABS.map((tab) => (
             <button
               key={tab.value || "all"}
               onClick={() => setStatusFilter(tab.value)}
-              className={`text-sm px-2.5 py-1 rounded-md transition-colors ${
-                statusFilter === tab.value ? "bg-indigo/10 text-indigo" : "text-ink-muted hover:text-ink"
+              className={`text-sm px-3 py-1.5 rounded-md font-medium transition-colors ${
+                statusFilter === tab.value ? "bg-indigo text-white shadow-sm" : "text-ink-muted hover:text-ink"
               }`}
             >
               {tab.label}
             </button>
           ))}
         </div>
-        <select
-          value={pillarFilter}
-          onChange={(e) => setPillarFilter(e.target.value as SocialPillar | "")}
-          className="h-8 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none focus:border-indigo"
-        >
-          <option value="">All pillars</option>
-          {PILLAR_OPTIONS.map((p) => (
-            <option key={p} value={p}>
-              {p.replace(/_/g, " ").toLowerCase()}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            value={pillarFilter}
+            onChange={(e) => setPillarFilter(e.target.value as SocialPillar | "")}
+            className="h-9 pl-3 pr-8 rounded-lg bg-surface-raised border border-border-strong text-sm text-ink outline-none focus:border-indigo appearance-none cursor-pointer"
+          >
+            <option value="">All pillars</option>
+            {PILLAR_OPTIONS.map((p) => (
+              <option key={p} value={p}>
+                {p.replace(/_/g, " ").toLowerCase()}
+              </option>
+            ))}
+          </select>
+          <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-muted" />
+        </div>
         <button
           onClick={() => setShowTrash((v) => !v)}
-          className={`ml-auto inline-flex items-center gap-1.5 text-sm px-2.5 py-1 rounded-md border transition-colors ${
-            showTrash ? "bg-danger/10 text-danger border-danger/30" : "text-ink-muted border-border-strong hover:text-ink"
+          className={`ml-auto inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border font-medium transition-colors ${
+            showTrash ? "bg-danger/10 text-danger border-danger/30" : "text-ink-muted border-border-strong hover:text-ink hover:border-ink-faint"
           }`}
         >
           <Trash2 size={13} /> {showTrash ? "Viewing Trash" : "Trash"}
@@ -198,7 +203,7 @@ export default function InstagramPage() {
           {showTrash ? "Trash is empty." : "No posts match these filters yet -- try Generate now."}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5">
           {groupPosts(posts).map((group) => (
             <PostCard key={group[0].groupId} posts={group} onClick={() => setSelected(group)} />
           ))}
