@@ -370,10 +370,17 @@ model AiUsageLog {
   imageCount   Int?
   costUsd      Float?
 
+  // Nullable -- set by DM Automation ("dm-reply", see below), reyse-app's
+  // first multi-tenant feature. Every other feature's rows stay null
+  // (Reyse's own single-tenant usage, no client to attribute it to).
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
   createdAt DateTime @default(now())
 
   @@index([feature, createdAt])
   @@index([createdAt])
+  @@index([clientId, createdAt])
   @@map("ra_ai_usage_log")
 }
 
@@ -485,4 +492,437 @@ model MailActivityLog {
 
   @@index([createdAt])
   @@map("ra_mail_activity_log")
+}
+
+// ---------------------------------------------------------------------
+// DM Automation -- Instagram/Facebook DM auto-replies for Reyse's actual
+// paying clients (independent holiday-let hosts), not Reyse itself. This
+// is reyse-app's first genuinely multi-tenant feature: every model above
+// this line is single-tenant, built only for Reyse's own accounts/inbox.
+// Morgan manages every client himself through this dashboard -- there is
+// no client-facing login anywhere in this feature, by deliberate choice.
+//
+// Prior art: an old, single-tenant, hardcoded Instagram DM bot existed in
+// the abandoned `reyse` repo (Morgan's own account only, no client
+// onboarding ever built). Its real, previously-undiagnosed failure was a
+// webhook signature bug (the POST HMAC check used the GET verify-token
+// instead of the actual app secret, so every inbound DM silently 401'd
+// with no alert) -- see src/lib/dm/webhookAuth.ts and the scheduled
+// synthetic health check in src/lib/dm/scheduler.ts, both built
+// specifically so that class of bug can't ship silently again.
+//
+// Naming convention: generic tenant/property concepts below (Client,
+// Property, PropertyKnowledgeBase, CalendarConnection, CalendarBlock,
+// Booking) are named plainly, not "Dm"-prefixed, since a future WhatsApp
+// Automation feature is expected to reuse this same tenant model rather
+// than invent its own. Everything specific to DM mechanics (webhook
+// payload shape, the 24h messaging window, echo events) is Dm-prefixed,
+// since that doesn't generalize to WhatsApp's own webhook format.
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+
+  @@map("ra_client_status")
+}
+
+model Client {
+  id     String       @id @default(cuid())
+  name   String
+  slug   String       @unique
+  status ClientStatus @default(ACTIVE)
+
+  // Where booking/escalation notifications go -- defaults to Morgan's own
+  // address for client zero, settable per client later so a real host can
+  // get their own notifications without ever needing a login.
+  notificationEmail String
+
+  // Hard per-client kill switch, checked before any AI reply is
+  // generated -- independent of any single conversation's own escalation
+  // state.
+  aiEnabled Boolean @default(true)
+
+  notes String?
+
+  properties      Property[]
+  metaConnections ClientMetaConnection[]
+  conversations   DmConversation[]
+  activityLogs    DmActivityLog[]
+  aiUsageLogs     AiUsageLog[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("ra_client")
+}
+
+model Property {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  name     String
+  location String?
+
+  checkInTime  String?
+  checkOutTime String?
+
+  // Needed to interpret an iCal feed's all-day date blocks, and "which
+  // calendar date is check-in", correctly -- an easy off-by-one-night bug
+  // if this stays implicit (UTC vs the property's actual local date).
+  timezone String @default("Europe/London")
+
+  isActive Boolean @default(true)
+
+  knowledgeBase      PropertyKnowledgeBase?
+  calendarConnection CalendarConnection?
+  conversations      DmConversation[]
+  bookings           Booking[]
+  calendarBlocks     CalendarBlock[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([deletedAt])
+  @@map("ra_property")
+}
+
+// 1:1 with Property, shaped exactly like ChatKnowledge above -- one
+// free-text block edited in an admin textarea, same UX, no new form
+// plumbing. This is what src/lib/dm/replyEngine.ts grounds every DM reply
+// in, per property rather than one shared singleton.
+model PropertyKnowledgeBase {
+  id         String   @id @default(cuid())
+  propertyId String   @unique
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  content   String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("ra_property_knowledge_base")
+}
+
+enum ClientMetaConnectionStatus {
+  ACTIVE
+  NEEDS_REAUTH
+  ERROR
+
+  @@map("ra_client_meta_connection_status")
+}
+
+// One row per (Client, platform) -- Instagram now, Facebook Messenger in
+// a later phase reuses this same model. Reuses the existing SocialPlatform
+// enum below (INSTAGRAM/FACEBOOK already means the same thing there) --
+// an enum of platform names isn't itself tenant data, so sharing it with
+// the unrelated Social content-posting feature is fine.
+model ClientMetaConnection {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  platform SocialPlatform
+
+  // The Instagram-scoped business account id (or, for Facebook Messenger
+  // later, the Page id) that an inbound webhook's entry[].id is matched
+  // against to route the message to this client.
+  externalAccountId String
+  externalUsername  String?
+  pageId            String?
+
+  // AES-256-GCM, same shape as MailAccount's refresh token above -- see
+  // src/lib/dm/crypto.ts. Never stored plain.
+  accessTokenCiphertext String
+  accessTokenIv         String
+  accessTokenAuthTag    String
+  tokenExpiresAt        DateTime?
+
+  status               ClientMetaConnectionStatus @default(ACTIVE)
+  lastHealthCheckAt    DateTime?
+  lastHealthCheckError String?
+
+  connectedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([clientId, platform])
+  @@unique([platform, externalAccountId])
+  @@index([status])
+  @@map("ra_client_meta_connection")
+}
+
+enum DmConversationStatus {
+  AI_ACTIVE
+  ESCALATED
+  HUMAN_ACTIVE
+  CLOSED
+
+  @@map("ra_dm_conversation_status")
+}
+
+// One per guest DM thread -- the direct analog of ChatConversation above,
+// scoped to a Client (and, once determined, a Property) instead of being
+// implicitly "Reyse's own".
+model DmConversation {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Nullable until determined -- a single-property client auto-binds
+  // immediately; a multi-property client's conversation starts unbound
+  // until the AI asks which property the guest means (Phase 3).
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id])
+
+  platform         SocialPlatform
+  externalUserId   String
+  externalUsername String?
+
+  status           DmConversationStatus @default(AI_ACTIVE)
+  escalatedAt      DateTime?
+  escalationReason String?
+
+  // Per-conversation override on top of Client.aiEnabled -- lets Morgan
+  // silence just one thread without pausing the whole client.
+  aiEnabled Boolean @default(true)
+
+  // Enforces Meta's 24-hour messaging window in code, not only in the
+  // prompt -- see src/lib/dm/replyEngine.ts.
+  lastInboundAt  DateTime?
+  lastOutboundAt DateTime?
+
+  messages     DmMessage[]
+  bookings     Booking[]
+  activityLogs DmActivityLog[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastMessageAt DateTime  @default(now())
+  deletedAt     DateTime?
+
+  @@unique([clientId, platform, externalUserId])
+  @@index([clientId, status])
+  @@index([deletedAt])
+  @@index([lastInboundAt])
+  @@map("ra_dm_conversation")
+}
+
+// Deliberately its own enum, not a reuse of ChatRole above -- ChatRole
+// belongs to Reyse's own marketing-site widget, and sharing it with
+// per-client guest data would be exactly the kind of accidental coupling
+// this schema otherwise goes out of its way to avoid (the same principle
+// as why DM conversations don't reuse the Enquiry model -- see
+// reyse-app/CLAUDE.md).
+enum DmMessageRole {
+  GUEST
+  AI
+  OPERATOR
+
+  @@map("ra_dm_message_role")
+}
+
+model DmMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   DmConversation @relation(fields: [conversationId], references: [id])
+
+  role    DmMessageRole
+  content String
+
+  // Meta's own message id ("mid") -- the idempotency key. Nullable-unique
+  // (Postgres allows multiple NULLs) so upserting on this is what
+  // survives the echo-arrives-before-write race the old repo's own
+  // bug-fix commit identified and fixed.
+  externalMessageId String? @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("ra_dm_message")
+}
+
+enum DmActivityAction {
+  ESCALATED
+  TAKEN_OVER_BY_OPERATOR
+  RETURNED_TO_AI
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  TOKEN_REAUTH_NEEDED
+  WEBHOOK_HEALTH_CHECK_FAILED
+
+  @@map("ra_dm_activity_action")
+}
+
+// Paper trail, modelled directly on MailActivityLog above.
+model DmActivityLog {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  conversationId String?
+  conversation   DmConversation? @relation(fields: [conversationId], references: [id])
+
+  action  DmActivityAction
+  summary String
+
+  createdAt DateTime @default(now())
+
+  @@index([clientId, createdAt])
+  @@map("ra_dm_activity_log")
+}
+
+enum CalendarSource {
+  ICAL
+  GOOGLE
+
+  @@map("ra_calendar_source")
+}
+
+enum CalendarConnectionStatus {
+  ACTIVE
+  ERROR
+
+  @@map("ra_calendar_connection_status")
+}
+
+// 1:1 with Property. Either an iCal feed URL (no OAuth, works with any
+// platform/channel manager's standard export) or a Google Calendar
+// connection -- a client picks one per property at setup (Phase 2).
+model CalendarConnection {
+  id         String   @id @default(cuid())
+  propertyId String   @unique
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  source CalendarSource
+
+  icalUrl String?
+
+  googleCalendarId             String?
+  googleRefreshTokenCiphertext String?
+  googleRefreshTokenIv         String?
+  googleRefreshTokenAuthTag    String?
+
+  status        CalendarConnectionStatus @default(ACTIVE)
+  lastSyncedAt  DateTime?
+  lastSyncError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ra_calendar_connection")
+}
+
+enum CalendarBlockSource {
+  ICAL_IMPORT
+  GOOGLE_IMPORT
+  REYSE_BOOKING
+
+  @@map("ra_calendar_block_source")
+}
+
+// The unified "this date range is unavailable" record regardless of
+// where it came from -- src/lib/dm/calendar/availability.ts only ever
+// queries this table, never CalendarConnection.source, which is the
+// entire point of normalizing both import sources plus Reyse's own
+// bookings into one shape.
+model CalendarBlock {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  source CalendarBlockSource
+
+  // The iCal feed's own UID, the Google event id, or a synthesized
+  // "reyse-booking:<bookingId>" -- always populated, which makes a
+  // refresh a clean upsert-on-conflict + delete-what's-missing diff.
+  externalUid String
+
+  // Stored as UTC-midnight-of-the-property's-local-calendar-date -- a
+  // deliberate convention (not an instant in time), documented here since
+  // it must be read/written consistently everywhere this model is
+  // touched.
+  startDate DateTime
+  endDate   DateTime
+
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([propertyId, externalUid])
+  @@index([propertyId, startDate, endDate])
+  @@map("ra_calendar_block")
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+
+  @@map("ra_booking_status")
+}
+
+// A booking confirmed inside Reyse -- field names deliberately avoid any
+// language implying this writes to Airbnb/Booking.com, because it can't
+// (no third-party API exists for that). It blocks the dates in Reyse's
+// own record (a CalendarBlock) and, for a Google-sourced property, is
+// also pushed onto the client's actual Google Calendar -- see
+// src/lib/dm/calendar/google.ts. Either way the host is notified, so a
+// human always knows a booking happened even though nothing required
+// their approval first.
+model Booking {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  conversationId String?
+  conversation   DmConversation? @relation(fields: [conversationId], references: [id])
+
+  guestName    String
+  guestContact String?
+
+  startDate DateTime
+  endDate   DateTime
+
+  status BookingStatus @default(CONFIRMED)
+
+  notes          String?
+  notifiedHostAt DateTime?
+
+  calendarBlocks CalendarBlock[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([propertyId, startDate, endDate])
+  @@index([conversationId])
+  @@index([deletedAt])
+  @@map("ra_booking")
+}
+
+// Append-only record from the scheduled synthetic-webhook safeguard (see
+// src/lib/dm/scheduler.ts) -- the automated check that exists specifically
+// because the old DM system's webhook signature bug silently broke every
+// inbound message with no alert, for a real stretch of time, discovered
+// only by manually DMing the account. This is what would have caught it
+// immediately instead.
+model DmWebhookHealthCheckLog {
+  id    String   @id @default(cuid())
+  ranAt DateTime @default(now())
+  ok    Boolean
+
+  statusCode   Int?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([ranAt])
+  @@map("ra_dm_webhook_health_check_log")
 }

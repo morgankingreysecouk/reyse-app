@@ -13,12 +13,17 @@ const CLAUDE_PRICE_PER_MTOK: Record<string, { input: number; output: number }> =
 // fixed "cost per image" to hardcode honestly, so image generations log
 // imageCount only and costUsd stays null. Flagged in the usage page rather
 // than faked with a made-up number.
+//
+// clientId is optional and only ever set by DM Automation (reyse-app's
+// first multi-tenant feature) -- every other feature's calls omit it and
+// the row stays attributed to Reyse's own single-tenant usage.
 export async function logAiUsage(entry: {
   feature: string;
   model: string;
   inputTokens?: number;
   outputTokens?: number;
   imageCount?: number;
+  clientId?: string;
 }): Promise<void> {
   let costUsd: number | null = null;
   const pricing = CLAUDE_PRICE_PER_MTOK[entry.model];
@@ -37,6 +42,7 @@ export async function logAiUsage(entry: {
         outputTokens: entry.outputTokens,
         imageCount: entry.imageCount,
         costUsd,
+        clientId: entry.clientId,
       },
     });
   } catch (error) {

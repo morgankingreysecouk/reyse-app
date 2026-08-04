@@ -12,5 +12,8 @@ export async function register() {
 
     const { startMailScheduler } = await import("@/lib/mail/scheduler");
     startMailScheduler();
+
+    const { startDmScheduler } = await import("@/lib/dm/scheduler");
+    startDmScheduler();
   }
 }
