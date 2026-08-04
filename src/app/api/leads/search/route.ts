@@ -81,10 +81,24 @@ export async function GET(request: NextRequest) {
     try {
       writer.send({ type: "status", message: `Searching "${queryText}"...` });
 
-      const candidates =
-        mode === "places"
-          ? await searchPlaces({ query: queryText, lat: Number(lat), lng: Number(lng) })
-          : (await searchCustomSearch({ query: queryText })).map((c) => ({ ...c, location: null }));
+      let candidates: { name: string; url: string; domain: string; location: string | null }[];
+      if (mode === "places") {
+        const result = await searchPlaces({ query: queryText, lat: Number(lat), lng: Number(lng) });
+        candidates = result.candidates;
+        if (result.cappedTextSearch) {
+          writer.send({
+            type: "status",
+            message: "Reached this month's Places search safety cap -- stopping here so it can never cost money. Resets next calendar month.",
+          });
+        } else if (result.cappedDetails) {
+          writer.send({
+            type: "status",
+            message: "Reached this month's Places website-lookup safety cap -- some businesses were found but their websites couldn't be checked. Resets next calendar month.",
+          });
+        }
+      } else {
+        candidates = (await searchCustomSearch({ query: queryText })).map((c) => ({ ...c, location: null }));
+      }
 
       writer.send({ type: "status", message: `Found ${candidates.length} candidate site(s), checking each...` });
 
@@ -128,7 +142,7 @@ export async function GET(request: NextRequest) {
               domain,
               url: canonicalUrl(domain),
               name: candidate.name,
-              location: "location" in candidate ? candidate.location : null,
+              location: candidate.location,
               source: mode === "places" ? "PLACES" : "CUSTOM_SEARCH",
               classification,
               classificationReason,

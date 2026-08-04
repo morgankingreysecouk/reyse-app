@@ -483,11 +483,31 @@ model Lead {
 model LeadSearchUsage {
   id            String @id @default(cuid())
   date          String @unique // "YYYY-MM-DD"
-  placesCalls   Int    @default(0)
+  placesCalls   Int    @default(0) // informational log only -- see LeadPlacesMonthlyUsage for the real enforced cap
   cseCalls      Int    @default(0)
   classifyCalls Int    @default(0)
 
   @@map("ra_lead_search_usage")
+}
+
+// The real spend-prevention mechanism for Google Places (New) -- Morgan was
+// explicit: this must never cost money. Google's own free tier resets
+// monthly against the Cloud Billing account's own cycle date, which this
+// app has no way to know -- so rather than track by exact calendar month
+// and risk being out of sync with Google's actual reset date, the caps in
+// usage.ts are set noticeably BELOW the real free allowance (Text Search
+// Pro: 5,000/month free, capped here at 4,000; Place Details Enterprise:
+// 1,000/month free, capped here at 800) as a deliberate safety margin, and
+// this table is reset by calendar month as a reasonable approximation.
+// Hitting either cap stops that call type for the rest of the month rather
+// than ever letting a call through that might be billed.
+model LeadPlacesMonthlyUsage {
+  id                String @id @default(cuid())
+  month             String @unique // "YYYY-MM"
+  textSearchCalls   Int    @default(0)
+  placeDetailsCalls Int    @default(0)
+
+  @@map("ra_lead_places_monthly_usage")
 }
 
 // Singleton settings row for Talk to Rey's spoken voice. Kokoro-82M (the
