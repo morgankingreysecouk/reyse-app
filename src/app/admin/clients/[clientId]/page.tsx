@@ -2,23 +2,34 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Camera, Plus, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Camera, Plus, AlertCircle, CheckCircle2, CalendarDays, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AddPropertyModal } from "@/components/clients/add-property-modal";
 import { PropertyKnowledgeModal } from "@/components/clients/property-knowledge-modal";
+import { PropertyCalendarModal } from "@/components/clients/property-calendar-modal";
 import { DmConversationModal } from "@/components/clients/dm-conversation-modal";
-import type { Client, Property, PropertyKnowledgeBase, ClientMetaConnection, DmConversation, DmMessage } from "@/generated/prisma/client";
+import type {
+  Client,
+  Property,
+  PropertyKnowledgeBase,
+  CalendarConnection,
+  ClientMetaConnection,
+  DmConversation,
+  DmMessage,
+  Booking,
+} from "@/generated/prisma/client";
 
 type ClientDetail = Client & {
-  properties: (Property & { knowledgeBase: PropertyKnowledgeBase | null })[];
+  properties: (Property & { knowledgeBase: PropertyKnowledgeBase | null; calendarConnection: CalendarConnection | null })[];
   metaConnections: ClientMetaConnection[];
 };
 
 type ConversationRow = DmConversation & { property?: { name: string } | null; messages: DmMessage[] };
+type BookingRow = Booking & { property: { name: string } };
 
-type Tab = "properties" | "meta" | "conversations" | "usage";
+type Tab = "properties" | "meta" | "conversations" | "bookings" | "usage";
 
 export default function ClientDetailPage({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = use(params);
@@ -28,10 +39,14 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
   const [loading, setLoading] = useState(true);
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<(Property & { knowledgeBase: PropertyKnowledgeBase | null }) | null>(null);
+  const [editingPropertyCalendar, setEditingPropertyCalendar] = useState<(Property & { calendarConnection: CalendarConnection | null }) | null>(null);
 
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [conversationFilter, setConversationFilter] = useState<string>("");
   const [selectedConversation, setSelectedConversation] = useState<ConversationRow | null>(null);
+
+  const [bookings, setBookings] = useState<BookingRow[]>([]);
+  const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
 
   const [usage, setUsage] = useState<{ totalCostUsd: number; totalCalls: number } | null>(null);
 
@@ -56,6 +71,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
     if (res.ok) setUsage(await res.json());
   }, [clientId]);
 
+  const loadBookings = useCallback(async () => {
+    const res = await fetch(`/api/clients/${clientId}/bookings`);
+    if (res.ok) setBookings((await res.json()).bookings);
+  }, [clientId]);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadClient();
@@ -69,10 +89,29 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
     if (tab === "usage") {
       loadUsage();
     }
-  }, [tab, loadConversations, loadUsage]);
+    if (tab === "bookings") {
+      loadBookings();
+    }
+  }, [tab, loadConversations, loadUsage, loadBookings]);
 
   const metaConnected = searchParams.get("metaConnected");
   const metaConnectError = searchParams.get("metaConnectError");
+  const calendarConnected = searchParams.get("calendarConnected");
+  const calendarConnectError = searchParams.get("calendarConnectError");
+
+  const handleCancelBooking = async (bookingId: string) => {
+    setCancellingBookingId(bookingId);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/bookings/${bookingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel" }),
+      });
+      if (res.ok) await loadBookings();
+    } finally {
+      setCancellingBookingId(null);
+    }
+  };
 
   const handleAddProperty = async (data: { name: string; location: string; checkInTime: string; checkOutTime: string }) => {
     const res = await fetch(`/api/clients/${clientId}/properties`, {
@@ -112,7 +151,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
 
       {metaConnected && (
         <div className="px-4 py-2.5 rounded-lg bg-success/10 border border-success/30 text-sm text-success flex items-center gap-2">
-          <CheckCircle2 size={14} /> Instagram connected.
+          <CheckCircle2 size={14} /> Instagram and Facebook Messenger connected for this Page.
         </div>
       )}
       {metaConnectError && (
@@ -120,9 +159,19 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
           <AlertCircle size={14} /> {metaConnectError}
         </div>
       )}
+      {calendarConnected && (
+        <div className="px-4 py-2.5 rounded-lg bg-success/10 border border-success/30 text-sm text-success flex items-center gap-2">
+          <CheckCircle2 size={14} /> Calendar connected.
+        </div>
+      )}
+      {calendarConnectError && (
+        <div className="px-4 py-2.5 rounded-lg bg-danger/10 border border-danger/30 text-sm text-danger flex items-center gap-2">
+          <AlertCircle size={14} /> {calendarConnectError}
+        </div>
+      )}
 
       <div className="flex gap-1 border-b border-border">
-        {(["properties", "meta", "conversations", "usage"] as Tab[]).map((t) => (
+        {(["properties", "meta", "conversations", "bookings", "usage"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -130,7 +179,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
               tab === t ? "border-indigo text-indigo" : "border-transparent text-ink-muted hover:text-ink"
             }`}
           >
-            {t === "properties" ? "Properties" : t === "meta" ? "Meta connection" : t === "conversations" ? "Conversations" : "AI usage"}
+            {t === "properties" ? "Properties" : t === "meta" ? "Meta connection" : t === "conversations" ? "Conversations" : t === "bookings" ? "Bookings" : "AI usage"}
           </button>
         ))}
       </div>
@@ -156,11 +205,19 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
                     {!property.knowledgeBase?.content?.trim() && (
                       <span className="text-warning ml-2">No knowledge base yet — AI will escalate everything</span>
                     )}
+                    {!property.calendarConnection && (
+                      <span className="text-ink-muted ml-2">· No calendar connected — booking questions are escalated</span>
+                    )}
                   </p>
                 </div>
-                <Button variant="secondary" size="sm" onClick={() => setEditingProperty(property)}>
-                  Edit knowledge base
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => setEditingPropertyCalendar(property)}>
+                    <CalendarDays size={14} /> Calendar
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => setEditingProperty(property)}>
+                    Edit knowledge base
+                  </Button>
+                </div>
               </Card>
             ))
           )}
@@ -172,11 +229,14 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
           {client.metaConnections.length === 0 ? (
             <Card className="p-8 text-center space-y-3">
               <p className="text-sm text-ink-muted">
-                No Instagram account connected yet. This client&apos;s DMs won&apos;t be picked up until it is.
+                No Instagram/Facebook Page connected yet. This client&apos;s DMs won&apos;t be picked up until it is.
               </p>
               <Button onClick={() => (window.location.href = `/api/clients/${clientId}/meta/connect`)}>
-                <Camera size={14} /> Connect Instagram
+                <Camera size={14} /> Connect Instagram &amp; Facebook
               </Button>
+              <p className="text-xs text-ink-muted">
+                One connection covers both -- Facebook Messenger uses the same Page-linked login as Instagram.
+              </p>
             </Card>
           ) : (
             client.metaConnections.map((conn) => (
@@ -193,7 +253,18 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
                     )}
                   </p>
                 </div>
-                <Badge tone={conn.status === "ACTIVE" ? "success" : "danger"}>{conn.status}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge tone={conn.status === "ACTIVE" ? "success" : "danger"}>{conn.status}</Badge>
+                  {conn.status !== "ACTIVE" && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => (window.location.href = `/api/clients/${clientId}/meta/connect`)}
+                    >
+                      Reconnect
+                    </Button>
+                  )}
+                </div>
               </Card>
             ))
           )}
@@ -252,6 +323,57 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
         </div>
       )}
 
+      {tab === "bookings" && (
+        <Card>
+          {bookings.length === 0 ? (
+            <div className="p-8 text-center text-sm text-ink-muted">
+              No bookings yet. Auto-confirmed bookings the AI makes (or you add manually) show up here.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs text-ink-muted uppercase tracking-wide">
+                  <th className="px-4 py-2.5 font-medium">Guest</th>
+                  <th className="px-4 py-2.5 font-medium">Property</th>
+                  <th className="px-4 py-2.5 font-medium">Dates</th>
+                  <th className="px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {bookings.map((b) => (
+                  <tr key={b.id} className="border-b border-border last:border-0">
+                    <td className="px-4 py-3 text-ink font-medium">
+                      {b.guestName}
+                      {b.guestContact && <span className="text-ink-muted font-normal"> · {b.guestContact}</span>}
+                    </td>
+                    <td className="px-4 py-3 text-ink-muted">{b.property.name}</td>
+                    <td className="px-4 py-3 text-ink-muted">
+                      {new Date(b.startDate).toLocaleDateString("en-GB")} – {new Date(b.endDate).toLocaleDateString("en-GB")}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge tone={b.status === "CONFIRMED" ? "success" : "neutral"}>{b.status}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {b.status === "CONFIRMED" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={cancellingBookingId === b.id}
+                          onClick={() => handleCancelBooking(b.id)}
+                        >
+                          {cancellingBookingId === b.id ? <Loader2 size={14} className="animate-spin" /> : null} Cancel
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      )}
+
       {tab === "usage" && (
         <Card className="p-6">
           {usage ? (
@@ -283,6 +405,15 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
             await handleSaveKnowledge(editingProperty.id, content);
             setEditingProperty(null);
           }}
+        />
+      )}
+
+      {editingPropertyCalendar && (
+        <PropertyCalendarModal
+          clientId={clientId}
+          property={editingPropertyCalendar}
+          onClose={() => setEditingPropertyCalendar(null)}
+          onChanged={loadClient}
         />
       )}
 

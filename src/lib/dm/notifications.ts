@@ -48,9 +48,26 @@ export async function notifyEscalation(params: {
   );
 }
 
-// notifyBooking (calendar/booking confirmation emails) is added in Phase 2
-// alongside src/lib/dm/calendar/*, not here -- no caller exists yet in
-// Phase 1's scope (escalation only).
+export async function notifyBooking(params: {
+  notificationEmail: string;
+  clientName: string;
+  propertyName: string;
+  guestName: string;
+  startDate: Date;
+  endDate: Date;
+  pushedToGoogleCalendar: boolean;
+  baseUrl: string;
+}): Promise<void> {
+  const format = (d: Date) => d.toISOString().slice(0, 10);
+  const googleNote = params.pushedToGoogleCalendar
+    ? " It's also been added to your connected Google Calendar."
+    : "";
+  await sendNotification(
+    params.notificationEmail,
+    `[Reyse] New booking -- ${params.propertyName}`,
+    `${params.guestName} was confirmed for ${params.propertyName} (${format(params.startDate)} to ${format(params.endDate)}) via your Instagram DM automation.\n\nThis blocks the dates in Reyse's own record.${googleNote} It does not and cannot create a reservation directly on Airbnb or Booking.com -- no third-party API exists for that, so if those listings need updating too, that's still down to you.\n\nView it: ${params.baseUrl}/admin/clients\n`,
+  );
+}
 
 // A platform-level failure (the webhook itself is broken for every
 // client, not just one) has no natural clientId to attach to -- goes to

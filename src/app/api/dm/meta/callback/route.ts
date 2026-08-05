@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
 
     if (candidates.length === 1) {
       await storeInstagramConnection(clientId, candidates[0]);
+      await storeFacebookConnection(clientId, candidates[0]);
       const url = new URL(`/admin/clients/${clientId}`, request.url);
       url.searchParams.set("metaConnected", "instagram");
       return NextResponse.redirect(url);
@@ -101,6 +102,45 @@ export async function storeInstagramConnection(clientId: string, candidate: Meta
     update: {
       externalAccountId: candidate.instagramAccountId,
       externalUsername: candidate.instagramUsername,
+      pageId: candidate.pageId,
+      accessTokenCiphertext: encrypted.ciphertext,
+      accessTokenIv: encrypted.iv,
+      accessTokenAuthTag: encrypted.authTag,
+      status: "ACTIVE",
+      lastHealthCheckError: null,
+      connectedAt: new Date(),
+      deletedAt: null,
+    },
+  });
+}
+
+// Phase 4 -- Page-linked flow was chosen for the Instagram connect flow
+// specifically so Facebook Messenger, once built, could reuse the exact
+// same connected identity rather than needing a second OAuth round trip.
+// This is that reuse: the same Page access token that authorizes sending
+// Instagram DMs also authorizes sending Messenger replies on that Page, so
+// connecting Instagram connects Messenger for the same Page at the same
+// time. externalAccountId is the Facebook Page id here (not the Instagram-
+// scoped account id storeInstagramConnection uses) -- that's what a
+// Messenger webhook's entry[].id actually carries.
+export async function storeFacebookConnection(clientId: string, candidate: MetaPageCandidate): Promise<void> {
+  const encrypted = encryptToken(candidate.pageAccessToken);
+  await db.clientMetaConnection.upsert({
+    where: { clientId_platform: { clientId, platform: "FACEBOOK" } },
+    create: {
+      clientId,
+      platform: "FACEBOOK",
+      externalAccountId: candidate.pageId,
+      externalUsername: candidate.pageName,
+      pageId: candidate.pageId,
+      accessTokenCiphertext: encrypted.ciphertext,
+      accessTokenIv: encrypted.iv,
+      accessTokenAuthTag: encrypted.authTag,
+      status: "ACTIVE",
+    },
+    update: {
+      externalAccountId: candidate.pageId,
+      externalUsername: candidate.pageName,
       pageId: candidate.pageId,
       accessTokenCiphertext: encrypted.ciphertext,
       accessTokenIv: encrypted.iv,

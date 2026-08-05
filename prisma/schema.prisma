@@ -676,9 +676,16 @@ model DmConversation {
 
   // Nullable until determined -- a single-property client auto-binds
   // immediately; a multi-property client's conversation starts unbound
-  // until the AI asks which property the guest means (Phase 3).
+  // until resolvePropertyOrAsk() (src/lib/dm/replyEngine.ts) asks the
+  // guest which property they mean.
   propertyId String?
   property   Property? @relation(fields: [propertyId], references: [id])
+
+  // Counts how many times resolvePropertyOrAsk() has asked a multi-property
+  // client's guest which property they mean -- bounds the retry (ask, one
+  // re-ask on an ambiguous/unmatched answer, then escalate) so a confused
+  // exchange can't loop forever. Reset to 0 once a property is resolved.
+  propertyDisambiguationAttempts Int @default(0)
 
   platform         SocialPlatform
   externalUserId   String
@@ -894,6 +901,11 @@ model Booking {
 
   notes          String?
   notifiedHostAt DateTime?
+
+  // Set only when this booking was pushed onto a client's actual Google
+  // Calendar (source GOOGLE properties only) -- lets a later cancellation
+  // remove the real event too, not just the internal CalendarBlock.
+  googleEventId String?
 
   calendarBlocks CalendarBlock[]
 

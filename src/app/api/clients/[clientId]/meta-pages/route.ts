@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { decryptToken } from "@/lib/dm/crypto";
-import { PENDING_META_CANDIDATES_COOKIE, storeInstagramConnection } from "@/app/api/dm/meta/callback/route";
+import { PENDING_META_CANDIDATES_COOKIE, storeInstagramConnection, storeFacebookConnection } from "@/app/api/dm/meta/callback/route";
 import type { MetaPageCandidate } from "@/lib/dm/metaOAuth";
 
 // Finalizes the choice made on the meta-pages picker screen -- reads the
@@ -33,6 +33,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!chosen) throw new Error("Chosen account not found in the pending list");
 
     await storeInstagramConnection(clientId, chosen);
+    await storeFacebookConnection(clientId, chosen);
     target.searchParams.set("metaConnected", "instagram");
   } catch (err) {
     target.searchParams.set("metaConnectError", err instanceof Error ? err.message : "Connection failed");

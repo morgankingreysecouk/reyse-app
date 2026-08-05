@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { signOAuthState as signState, verifyOAuthState as verifyState } from "@/lib/dm/oauthState";
 
 // Meta OAuth (Facebook Login for Business) for onboarding a client's
 // Instagram DM automation. Page-linked flow chosen deliberately over the
@@ -150,44 +150,15 @@ export async function debugToken(inputToken: string): Promise<{
 }
 
 // --- CSRF state param --------------------------------------------------
-// Signed rather than stored server-side: {clientId, nonce, issuedAt} HMAC'd
-// with NEXTAUTH_SECRET (already this app's general server-secret, used for
-// session signing) makes the state unforgeable and freshness-checkable
-// without a new scratch table for what's only ever a few-minutes-lived
-// value between the connect redirect and Meta's callback.
-const STATE_MAX_AGE_MS = 10 * 60 * 1000;
-
-function stateSecret(): string {
-  const secret = process.env.NEXTAUTH_SECRET;
-  if (!secret) throw new Error("NEXTAUTH_SECRET is not set");
-  return secret;
-}
-
+// Thin wrappers around the shared src/lib/dm/oauthState.ts helper (which
+// Google Calendar's own OAuth flow also uses, for a propertyId instead of
+// a clientId) -- kept as named functions here so call sites read
+// `signOAuthState(clientId)` rather than a generic `signOAuthState(id)`
+// with no context about what the id means at this call site.
 export function signOAuthState(clientId: string): string {
-  const payload = JSON.stringify({ clientId, nonce: randomUUID(), issuedAt: Date.now() });
-  const payloadB64 = Buffer.from(payload, "utf8").toString("base64url");
-  const signature = createHmac("sha256", stateSecret()).update(payloadB64).digest("base64url");
-  return `${payloadB64}.${signature}`;
+  return signState(clientId);
 }
 
 export function verifyOAuthState(state: string): { clientId: string } {
-  const [payloadB64, signature] = state.split(".");
-  if (!payloadB64 || !signature) throw new Error("Malformed OAuth state");
-
-  const expected = createHmac("sha256", stateSecret()).update(payloadB64).digest("base64url");
-  const a = Buffer.from(signature);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    throw new Error("OAuth state signature mismatch -- start the connection again");
-  }
-
-  const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8")) as {
-    clientId: string;
-    nonce: string;
-    issuedAt: number;
-  };
-  if (Date.now() - payload.issuedAt > STATE_MAX_AGE_MS) {
-    throw new Error("OAuth state expired -- start the connection again");
-  }
-  return { clientId: payload.clientId };
+  return { clientId: verifyState(state) };
 }

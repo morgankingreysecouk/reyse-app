@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { checkDueConnections } from "@/lib/dm/metaTokenHealth";
 import { notifyPlatformIssue } from "@/lib/dm/notifications";
 import { SYNTHETIC_HEALTH_CHECK_ENTRY_ID } from "@/lib/dm/syntheticHealthCheck";
+import { syncIcalConnection } from "@/lib/dm/calendar/ical";
+import { syncGoogleCalendarConnection } from "@/lib/dm/calendar/google";
 
 // Same 5-minute tick shape as src/lib/social/scheduler.ts and
 // src/lib/mail/scheduler.ts -- the only scheduling mechanism this stack
@@ -20,6 +22,7 @@ import { SYNTHETIC_HEALTH_CHECK_ENTRY_ID } from "@/lib/dm/syntheticHealthCheck";
 const TICK_INTERVAL_MS = 5 * 60 * 1000;
 const SYNTHETIC_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const FAILURE_ALERT_THROTTLE_MS = 6 * 60 * 60 * 1000;
+const CALENDAR_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "https://reyse-app-production.up.railway.app";
 
@@ -91,6 +94,37 @@ async function maybeRunSyntheticWebhookCheck(): Promise<void> {
   }
 }
 
+// Periodic full pull-sync for every connected property calendar (iCal or
+// Google), gated on CalendarConnection.lastSyncedAt so most 5-minute ticks
+// are a cheap no-op -- only connections due for their next hourly sync
+// actually fetch anything. lastSyncedAt is bumped on both success and
+// failure (see ical.ts/google.ts's own comments), so a connection stuck
+// failing gets retried hourly like everything else rather than hammered
+// every 5 minutes.
+async function maybeSyncCalendars(): Promise<void> {
+  const dueBefore = new Date(Date.now() - CALENDAR_SYNC_INTERVAL_MS);
+  const due = await db.calendarConnection.findMany({
+    where: { OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: dueBefore } }] },
+  });
+
+  for (const connection of due) {
+    try {
+      if (connection.source === "ICAL") {
+        if (!connection.icalUrl) continue;
+        await syncIcalConnection(connection.propertyId, connection.icalUrl);
+      } else {
+        await syncGoogleCalendarConnection(connection.propertyId);
+      }
+    } catch (error) {
+      // Both sync functions already catch their own real failures (a dead
+      // URL, an expired token) and record them on the connection itself --
+      // reaching here means something unexpected escaped that, so it's
+      // still logged, but this must never take down the rest of the tick.
+      console.error(`Calendar sync failed for property ${connection.propertyId}:`, error);
+    }
+  }
+}
+
 let started = false;
 
 export function startDmScheduler(): void {
@@ -101,6 +135,7 @@ export function startDmScheduler(): void {
   const tick = () => {
     maybeCheckTokenHealth().catch((error) => console.error("DM scheduler tick (token health) failed:", error));
     maybeRunSyntheticWebhookCheck().catch((error) => console.error("DM scheduler tick (webhook health) failed:", error));
+    maybeSyncCalendars().catch((error) => console.error("DM scheduler tick (calendar sync) failed:", error));
   };
 
   setInterval(tick, TICK_INTERVAL_MS);

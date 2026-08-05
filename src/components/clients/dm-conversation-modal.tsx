@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Send, Radio, AlertTriangle, Bot } from "lucide-react";
+import { X, Send, Radio, AlertTriangle, Bot, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { DmConversation, DmMessage } from "@/generated/prisma/client";
@@ -43,6 +43,8 @@ export function DmConversationModal({
   const [sendError, setSendError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
   const [returning, setReturning] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(initial.aiEnabled);
+  const [togglingAi, setTogglingAi] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const pendingOwnSends = useRef<string[]>([]);
 
@@ -120,6 +122,25 @@ export function DmConversationModal({
     }
   };
 
+  // Per-conversation kill switch, independent of the client-wide toggle --
+  // lets Morgan silence just this one thread (e.g. a guest who wants a
+  // human every time) without pausing AI replies for every other
+  // conversation on the same client.
+  const toggleAiEnabled = async () => {
+    setTogglingAi(true);
+    const next = !aiEnabled;
+    try {
+      const res = await fetch(`/api/clients/${clientId}/conversations/${initial.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set_ai_enabled", aiEnabled: next }),
+      });
+      if (res.ok) setAiEnabled(next);
+    } finally {
+      setTogglingAi(false);
+    }
+  };
+
   const returnToAi = async () => {
     setReturning(true);
     try {
@@ -153,9 +174,21 @@ export function DmConversationModal({
               <Radio size={11} className={live ? "animate-pulse" : ""} /> {live ? "Live" : "Connecting..."}
             </span>
           </div>
-          <button onClick={onClose} className="text-ink-muted hover:text-ink" aria-label="Close">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleAiEnabled}
+              disabled={togglingAi}
+              title={aiEnabled ? "AI replies are on for this conversation -- click to silence just this one" : "AI replies are off for this conversation"}
+              className={`inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-md border transition-colors disabled:opacity-50 ${
+                aiEnabled ? "text-ink-muted border-border-strong hover:text-ink" : "bg-warning/10 text-warning border-warning/30"
+              }`}
+            >
+              <Power size={12} /> {aiEnabled ? "AI on" : "AI off"}
+            </button>
+            <button onClick={onClose} className="text-ink-muted hover:text-ink" aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {status === "ESCALATED" && initial.escalationReason && (

@@ -63,5 +63,18 @@ export async function PATCH(
     return NextResponse.json({ conversation: updated });
   }
 
+  // Per-conversation kill switch, independent of Client.aiEnabled -- lets
+  // Morgan silence one problem conversation without pausing the whole
+  // client. The field existed in the schema since Phase 1 with no UI to
+  // reach it until now.
+  if (action === "set_ai_enabled") {
+    const aiEnabled = (body as Record<string, unknown>).aiEnabled;
+    if (typeof aiEnabled !== "boolean") {
+      return NextResponse.json({ error: "aiEnabled must be a boolean" }, { status: 400 });
+    }
+    const updated = await db.dmConversation.update({ where: { id }, data: { aiEnabled } });
+    return NextResponse.json({ conversation: updated });
+  }
+
   return NextResponse.json({ error: "No recognised action" }, { status: 400 });
 }

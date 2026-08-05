@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { decryptToken } from "@/lib/dm/crypto";
-import { sendInstagramMessage } from "@/lib/dm/graphApi";
+import { sendPlatformMessage } from "@/lib/dm/graphApi";
 import { publish } from "@/lib/dm/dmStream";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -57,8 +57,9 @@ export async function POST(
       iv: connection.accessTokenIv,
       authTag: connection.accessTokenAuthTag,
     });
-    const sent = await sendInstagramMessage({
-      instagramAccountId: connection.externalAccountId,
+    const sent = await sendPlatformMessage({
+      platform: conversation.platform,
+      accountId: connection.externalAccountId,
       accessToken,
       recipientId: conversation.externalUserId,
       text,
