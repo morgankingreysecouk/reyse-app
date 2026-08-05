@@ -31,25 +31,21 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 active
                   ? "bg-indigo/10 text-indigo"
                   : "text-ink-muted hover:text-ink hover:bg-surface-raised"
               )}
             >
+              {active && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-indigo" />
+              )}
               <Icon size={17} strokeWidth={2} />
               {item.label}
             </Link>
           );
         })}
       </nav>
-
-      <div className="px-3 py-4 border-t border-border">
-        <div className="rounded-lg border border-border-strong bg-surface-raised px-3 py-2.5 text-xs text-ink-muted">
-          Leads is the one section still to be built — everything else here
-          is live.
-        </div>
-      </div>
     </aside>
   );
 }
