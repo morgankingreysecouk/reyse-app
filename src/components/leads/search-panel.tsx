@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Loader2, MapPin, Globe } from "lucide-react";
+import { Search, Loader2, MapPin, Globe, LayoutGrid } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
+import { cn } from "@/lib/cn";
 import { SEARCH_TERMS, UK_REGIONS } from "@/lib/leadgen/searchTerms";
 
 interface Collection {
@@ -13,11 +15,19 @@ interface Collection {
 
 interface ProgressState {
   message: string;
-  candidatesFound?: number;
   saved: number;
   skipped: number;
+  combosRun?: number;
+  combosTotal?: number;
+  capped?: string;
 }
 
+// Whole-county search, not pick-a-town-and-a-phrase-and-click-repeatedly.
+// Morgan's explicit call (5 Aug 2026): type/pick a county, and it works
+// through every town in it x every search phrase automatically -- "every
+// single lead possible," no manual per-town selection. The three separate
+// region/town/phrase selects this used to have are gone; the server
+// (src/app/api/leads/search/route.ts) does the looping now.
 export function SearchPanel({
   collections,
   onCreateCollection,
@@ -29,8 +39,6 @@ export function SearchPanel({
 }) {
   const [mode, setMode] = useState<"places" | "cse">("places");
   const [regionName, setRegionName] = useState(UK_REGIONS[0]!.name);
-  const [pointName, setPointName] = useState(UK_REGIONS[0]!.points[0]!.name);
-  const [term, setTerm] = useState<string>(SEARCH_TERMS[0]);
   const [collectionId, setCollectionId] = useState<string>("");
   const [newCollectionName, setNewCollectionName] = useState("");
 
@@ -38,8 +46,8 @@ export function SearchPanel({
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const region = UK_REGIONS.find((r) => r.name === regionName)!;
-  const point = region.points.find((p) => p.name === pointName) ?? region.points[0]!;
+  const region = UK_REGIONS.find((r) => r.name === regionName) ?? UK_REGIONS[0]!;
+  const comboCount = region.points.length * SEARCH_TERMS.length;
 
   const runSearch = async () => {
     setRunning(true);
@@ -59,14 +67,9 @@ export function SearchPanel({
       }
     }
 
-    const query = mode === "places" ? term : `${term} ${point.name}`;
     const url = new URL("/api/leads/search", window.location.origin);
     url.searchParams.set("mode", mode);
-    url.searchParams.set("query", query);
-    if (mode === "places") {
-      url.searchParams.set("lat", String(point.lat));
-      url.searchParams.set("lng", String(point.lng));
-    }
+    url.searchParams.set("region", region.name);
     if (activeCollectionId) url.searchParams.set("collectionId", activeCollectionId);
 
     const es = new EventSource(url.toString());
@@ -76,22 +79,26 @@ export function SearchPanel({
     es.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
       if (data.type === "status") {
-        setProgress((p) => ({ saved: p?.saved ?? saved, skipped: p?.skipped ?? skipped, message: data.message }));
+        setProgress((p) => ({ ...(p ?? { saved, skipped, message: "" }), saved, skipped, message: data.message }));
       } else if (data.type === "classified") {
         saved++;
-        setProgress({ saved, skipped, message: `Saved: ${data.lead.name}` });
+        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped, message: `Saved: ${data.lead.name}` }));
       } else if (data.type === "skipped") {
         skipped++;
-        setProgress((p) => ({ saved, skipped, message: p?.message ?? "" }));
+        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped }));
+      } else if (data.type === "capped") {
+        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped, capped: data.message }));
       } else if (data.type === "error") {
         setError(data.message);
       } else if (data.type === "done") {
-        setProgress({
+        setProgress((p) => ({
           message: "Done.",
-          candidatesFound: data.stats.candidatesFound,
           saved: data.stats.saved,
           skipped: data.stats.skippedDuplicates,
-        });
+          combosRun: data.stats.combosRun,
+          combosTotal: data.stats.combosTotal,
+          capped: p?.capped,
+        }));
         es.close();
         setRunning(false);
         onSearchComplete();
@@ -111,102 +118,105 @@ export function SearchPanel({
           <Search size={16} /> Find leads
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setMode("places")}
-            className={`flex-1 flex items-center justify-center gap-1.5 h-9 rounded-md border text-sm font-medium transition-colors ${
-              mode === "places" ? "bg-indigo/10 border-indigo text-indigo" : "border-border-strong text-ink-muted"
-            }`}
-          >
-            <MapPin size={14} /> Map search
-          </button>
-          <button
-            onClick={() => setMode("cse")}
-            className={`flex-1 flex items-center justify-center gap-1.5 h-9 rounded-md border text-sm font-medium transition-colors ${
-              mode === "cse" ? "bg-indigo/10 border-indigo text-indigo" : "border-border-strong text-ink-muted"
-            }`}
-          >
-            <Globe size={14} /> Web search
-          </button>
+      <CardContent className="space-y-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">Search using</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => setMode("places")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-1.5 h-9 rounded-md border text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none",
+                mode === "places"
+                  ? "bg-indigo/10 border-indigo text-indigo"
+                  : "border-border-strong text-ink-muted hover:border-ink-faint"
+              )}
+            >
+              <MapPin size={14} /> Map search
+            </button>
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => setMode("cse")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-1.5 h-9 rounded-md border text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none",
+                mode === "cse"
+                  ? "bg-indigo/10 border-indigo text-indigo"
+                  : "border-border-strong text-ink-muted hover:border-ink-faint"
+              )}
+            >
+              <Globe size={14} /> Web search
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <select
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">County</p>
+          <Combobox
+            options={UK_REGIONS.map((r) => r.name)}
             value={regionName}
-            onChange={(e) => {
-              setRegionName(e.target.value);
-              setPointName(UK_REGIONS.find((r) => r.name === e.target.value)!.points[0]!.name);
-            }}
-            className="h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none"
-          >
-            {UK_REGIONS.map((r) => (
-              <option key={r.name} value={r.name}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={pointName}
-            onChange={(e) => setPointName(e.target.value)}
-            className="h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none"
-          >
-            {region.points.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+            onChange={setRegionName}
+            placeholder="Type a county..."
+            disabled={running}
+          />
+          <p className="text-xs text-ink-muted mt-2 flex items-start gap-1.5">
+            <LayoutGrid size={12} className="shrink-0 mt-0.5" />
+            <span>
+              Every town in {region.name} ({region.points.length}) x every search phrase ({SEARCH_TERMS.length}) ·{" "}
+              {comboCount} searches, no picking required.
+            </span>
+          </p>
         </div>
 
-        <select
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          className="w-full h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none"
-        >
-          {SEARCH_TERMS.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-
-        {/* Stacked, not side-by-side -- this panel is only ~320px wide, and
-            two fields sharing that width left "or new collection name"
-            visibly cut off. */}
-        <div className="space-y-2">
-          <select
-            value={collectionId}
-            onChange={(e) => setCollectionId(e.target.value)}
-            className="w-full h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none"
-          >
-            <option value="">No collection</option>
-            {collections.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <input
-            value={newCollectionName}
-            onChange={(e) => {
-              setNewCollectionName(e.target.value);
-              setCollectionId("");
-            }}
-            placeholder="...or name a new collection"
-            className="w-full h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none placeholder:text-ink-faint"
-          />
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">Collection (optional)</p>
+          <div className="space-y-2">
+            <select
+              value={collectionId}
+              disabled={running}
+              onChange={(e) => setCollectionId(e.target.value)}
+              className="w-full h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <option value="">No collection</option>
+              {collections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <input
+              value={newCollectionName}
+              disabled={running}
+              onChange={(e) => {
+                setNewCollectionName(e.target.value);
+                setCollectionId("");
+              }}
+              placeholder="...or name a new collection"
+              className="w-full h-9 px-2.5 rounded-md bg-surface-raised border border-border-strong text-sm text-ink outline-none placeholder:text-ink-faint disabled:opacity-50 disabled:pointer-events-none"
+            />
+          </div>
         </div>
 
         <Button className="w-full" disabled={running} onClick={runSearch}>
           {running ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-          {running ? "Searching..." : "Search"}
+          {running ? "Searching..." : `Search all of ${region.name}`}
         </Button>
 
         {progress && (
-          <div className="text-xs text-ink-muted bg-surface-raised rounded-md px-3 py-2">
-            <p>{progress.message}</p>
-            <p className="mt-0.5">
+          <div
+            className={cn(
+              "text-xs rounded-md px-3 py-2 space-y-0.5",
+              progress.capped ? "bg-warning/10 text-warning" : "bg-surface-raised text-ink-muted"
+            )}
+          >
+            {progress.combosRun !== undefined && progress.combosTotal !== undefined && (
+              <p className="text-ink font-medium">
+                Covered {progress.combosRun} of {progress.combosTotal} town/phrase searches
+              </p>
+            )}
+            <p>{progress.capped ?? progress.message}</p>
+            <p className="text-ink-muted">
               Saved {progress.saved}
               {progress.skipped > 0 && ` · Skipped ${progress.skipped} already known`}
             </p>

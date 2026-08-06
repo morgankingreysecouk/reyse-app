@@ -18,9 +18,9 @@ export interface NavItem {
 }
 
 // One entry per product area. All dashboard routes live under /admin (22
-// July 2026, Morgan's call) rather than at the site root. Leads is the only
-// one still a placeholder (src/app/admin/leads/page.tsx) -- everything
-// else routes to a real, built feature.
+// July 2026, Morgan's call) rather than at the site root. Every entry below
+// routes to a real, built feature -- Leads (the last one) went live 5 Aug
+// 2026 via PR #6.
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "Enquiries", href: "/admin/enquiries", icon: Inbox },
