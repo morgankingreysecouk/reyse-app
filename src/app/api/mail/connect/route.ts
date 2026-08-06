@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getConsentUrl, getRequestBaseUrl } from "@/lib/mail/googleClient";
+import { getConsentUrl } from "@/lib/mail/googleClient";
+import { getRequestBaseUrl } from "@/lib/requestUrl";
 
 // Kicks off the one-time Google consent flow for the dedicated
 // "Reyse Mail Assistant" OAuth client. Session check here is belt-and-

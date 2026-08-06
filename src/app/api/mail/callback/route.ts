@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { connectAccount, getRequestBaseUrl } from "@/lib/mail/googleClient";
+import { connectAccount } from "@/lib/mail/googleClient";
+import { getRequestBaseUrl } from "@/lib/requestUrl";
 
 // Google redirects the browser here after Morgan approves (or denies)
 // access. Still an authenticated browser navigation with the normal
