@@ -8,6 +8,7 @@ import {
   Settings,
   Mic,
   Mail,
+  Palette,
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Talk to Rey", href: "/admin/talk", icon: Mic },
   { label: "Social", href: "/admin/social", icon: Camera },
   { label: "Leads", href: "/admin/leads", icon: Users },
+  { label: "Brand Assets", href: "/admin/brand", icon: Palette },
   { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
   { label: "Settings", href: "/admin/settings", icon: Settings },
 ];

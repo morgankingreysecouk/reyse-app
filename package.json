@@ -21,15 +21,18 @@
     "lucide-react": "^1.25.0",
     "next": "^16.2.12",
     "next-auth": "^4.24.14",
+    "pdfkit": "^0.19.1",
     "prisma": "^7.9.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "replicate": "^1.4.0",
+    "svg-to-pdfkit": "^0.1.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pdfkit": "^0.17.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
