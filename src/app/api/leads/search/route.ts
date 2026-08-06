@@ -72,7 +72,7 @@ async function runOneCombo(
   mode: "places" | "cse",
   point: RegionPoint,
   term: string
-): Promise<{ candidates: Candidate[]; cappedMessage: string | null }> {
+): Promise<{ candidates: Candidate[]; cappedMessage: string | null; error: string | null }> {
   if (mode === "places") {
     const result = await searchPlaces({ query: term, lat: point.lat, lng: point.lng });
     const cappedMessage = result.cappedTextSearch
@@ -80,7 +80,7 @@ async function runOneCombo(
       : result.cappedDetails
         ? "Reached this month's Places website-lookup safety cap -- stopping here so it can never cost money. Resets next calendar month."
         : null;
-    return { candidates: result.candidates, cappedMessage };
+    return { candidates: result.candidates, cappedMessage, error: result.error };
   }
 
   const remaining = await cseCallsRemainingToday();
@@ -88,10 +88,11 @@ async function runOneCombo(
     return {
       candidates: [],
       cappedMessage: "Reached today's free web-search limit (100/day) -- stopping here so it can never cost money. Resets tomorrow.",
+      error: null,
     };
   }
-  const candidates = (await searchCustomSearch({ query: `${term} ${point.name}` })).map((c) => ({ ...c, location: null }));
-  return { candidates, cappedMessage: null };
+  const { candidates: raw, error } = await searchCustomSearch({ query: `${term} ${point.name}` });
+  return { candidates: raw.map((c) => ({ ...c, location: null })), cappedMessage: null, error };
 }
 
 export async function GET(request: NextRequest) {
@@ -134,6 +135,15 @@ export async function GET(request: NextRequest) {
       let saved = 0;
       let skipped = 0;
       let combosRun = 0;
+      let combosFailed = 0;
+      let consecutiveFailures = 0;
+      // A single Google-side hiccup (rate limit, transient 5xx) shouldn't
+      // kill the entire county run when there are another 100+ combos left
+      // to try -- but the SAME failure repeating over and over is a
+      // different signal (a bad/missing key, a disabled API) where
+      // continuing would just burn quota and time failing the same way
+      // another 100+ times. Five in a row is "clearly broken," not bad luck.
+      const MAX_CONSECUTIVE_FAILURES = 5;
 
       comboLoop: for (const { point, term } of combos) {
         if (request.signal.aborted) break;
@@ -144,8 +154,38 @@ export async function GET(request: NextRequest) {
           message: `[${combosRun}/${combos.length}] ${point.name} -- "${term}"`,
         });
 
-        const { candidates, cappedMessage } = await runOneCombo(mode, point, term);
+        let candidates: Candidate[] = [];
+        let cappedMessage: string | null = null;
+        try {
+          const result = await runOneCombo(mode, point, term);
+          candidates = result.candidates;
+          cappedMessage = result.cappedMessage;
+          if (result.error) {
+            combosFailed++;
+            consecutiveFailures++;
+            writer.send({ type: "combo-error", point: point.name, term, message: result.error });
+          } else {
+            consecutiveFailures = 0;
+          }
+        } catch (err) {
+          combosFailed++;
+          consecutiveFailures++;
+          writer.send({
+            type: "combo-error",
+            point: point.name,
+            term,
+            message: err instanceof Error ? err.message : "This search failed.",
+          });
+        }
         candidatesFound += candidates.length;
+
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          writer.send({
+            type: "error",
+            message: `The last ${consecutiveFailures} searches in a row all failed the same way -- stopping here rather than repeating a losing setup ${combos.length - combosRun} more times. See the error just above for the actual reason (often a bad or missing API key).`,
+          });
+          break;
+        }
 
         for (const candidate of candidates) {
           if (request.signal.aborted) break comboLoop;
@@ -219,7 +259,7 @@ export async function GET(request: NextRequest) {
 
       writer.send({
         type: "done",
-        stats: { candidatesFound, saved, skippedDuplicates: skipped, combosRun, combosTotal: combos.length },
+        stats: { candidatesFound, saved, skippedDuplicates: skipped, combosRun, combosTotal: combos.length, combosFailed },
       });
     } catch (err) {
       writer.send({ type: "error", message: err instanceof Error ? err.message : "Search failed." });

@@ -57,6 +57,12 @@ export interface PlacesSearchResult {
   // honest reason attached rather than looking like a silent bug.
   cappedTextSearch: boolean;
   cappedDetails: boolean;
+  // Non-null if a Text Search call itself failed (bad key, Google-side
+  // error, rate limit) -- whatever candidates were already collected from
+  // earlier pages are still returned rather than discarded, but this is set
+  // so the caller can tell "genuinely no leads here" apart from "the API
+  // call to find out actually failed," which otherwise look identical.
+  error: string | null;
 }
 
 // Real map search: Text Search (New) biased to a lat/lng + radius (not a
@@ -80,6 +86,7 @@ export async function searchPlaces(params: {
   const seenPlaceIds = new Set<string>();
   let cappedTextSearch = false;
   let cappedDetails = false;
+  let error: string | null = null;
 
   let pageToken: string | undefined;
   for (let page = 0; page < maxPages; page++) {
@@ -110,9 +117,16 @@ export async function searchPlaces(params: {
       body: JSON.stringify(body),
     });
     await incrementPlacesUsage("textSearchCalls");
-    if (!res.ok) break;
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => "");
+      error = `Places Text Search HTTP ${res.status}${bodyText ? ` -- ${bodyText.slice(0, 300)}` : ""}`;
+      break;
+    }
     const data = (await res.json()) as TextSearchResponse;
-    if (data.error) throw new Error(`Places Text Search error: ${data.error.status ?? "unknown"}${data.error.message ? ` -- ${data.error.message}` : ""}`);
+    if (data.error) {
+      error = `Places Text Search error: ${data.error.status ?? "unknown"}${data.error.message ? ` -- ${data.error.message}` : ""}`;
+      break;
+    }
 
     for (const place of data.places ?? []) {
       if (seenPlaceIds.has(place.id)) continue;
@@ -150,5 +164,5 @@ export async function searchPlaces(params: {
     pageToken = data.nextPageToken;
   }
 
-  return { candidates, cappedTextSearch, cappedDetails };
+  return { candidates, cappedTextSearch, cappedDetails, error };
 }
