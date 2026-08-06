@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getRequestBaseUrl } from "@/lib/requestUrl";
+import { buildAppUrl, getRequestBaseUrl } from "@/lib/requestUrl";
 import { connectGoogleCalendar, syncGoogleCalendarConnection } from "@/lib/dm/calendar/google";
 
 // One fixed path -- Google's redirect_uri is registered per-OAuth-client,
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     // Morgan just sees the sync error reflected in the UI.
     await syncGoogleCalendarConnection(propertyId);
 
-    const url = new URL(`/admin/clients/${property.clientId}`, request.url);
+    const url = buildAppUrl(request, `/admin/clients/${property.clientId}`);
     url.searchParams.set("calendarConnected", "google");
     return NextResponse.redirect(url);
   } catch (err) {
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 }
 
 function errorRedirect(request: NextRequest, clientId: string | null, message: string): URL {
-  const url = new URL(clientId ? `/admin/clients/${clientId}` : "/admin/clients", request.url);
+  const url = buildAppUrl(request, clientId ? `/admin/clients/${clientId}` : "/admin/clients");
   url.searchParams.set("calendarConnectError", message);
   return url;
 }

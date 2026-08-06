@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { decryptToken } from "@/lib/dm/crypto";
 import { PENDING_META_CANDIDATES_COOKIE, storeInstagramConnection, storeFacebookConnection } from "@/app/api/dm/meta/callback/route";
 import type { MetaPageCandidate } from "@/lib/dm/metaOAuth";
+import { buildAppUrl } from "@/lib/requestUrl";
 
 // Finalizes the choice made on the meta-pages picker screen -- reads the
 // same short-lived encrypted cookie the callback route set, finds the
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const chosenId = form.get("pageId");
 
   const raw = request.cookies.get(PENDING_META_CANDIDATES_COOKIE)?.value;
-  const target = new URL(`/admin/clients/${clientId}`, request.url);
+  const target = buildAppUrl(request, `/admin/clients/${clientId}`);
 
   if (!raw || typeof chosenId !== "string") {
     target.searchParams.set("metaConnectError", "Connection attempt expired -- reconnect from the client page.");

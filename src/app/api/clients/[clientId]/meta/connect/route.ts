@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getRequestBaseUrl } from "@/lib/requestUrl";
+import { buildAppUrl, getRequestBaseUrl } from "@/lib/requestUrl";
 import { buildAuthorizationUrl, signOAuthState } from "@/lib/dm/metaOAuth";
 
 // Kicks off the Meta OAuth consent flow for one specific client's
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // Most likely cause: META_APP_ID/META_APP_SECRET not set on this
     // deploy yet. Send Morgan back with a plain-language reason instead of
     // Next's raw error page.
-    const target = new URL(`/admin/clients/${clientId}`, request.url);
+    const target = buildAppUrl(request, `/admin/clients/${clientId}`);
     target.searchParams.set("metaConnectError", err instanceof Error ? err.message : "Couldn't start the connection");
     return NextResponse.redirect(target);
   }
