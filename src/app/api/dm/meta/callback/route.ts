@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { getRequestBaseUrl } from "@/lib/requestUrl";
 import {
   exchangeCodeForLongLivedUserToken,
-  listInstagramCandidates,
+  listMetaPageCandidates,
   verifyOAuthState,
   type MetaPageCandidate,
 } from "@/lib/dm/metaOAuth";
@@ -38,31 +38,38 @@ export async function GET(request: NextRequest) {
   try {
     const redirectUri = `${getRequestBaseUrl(request)}/api/dm/meta/callback`;
     const userAccessToken = await exchangeCodeForLongLivedUserToken(code, redirectUri);
-    const candidates = await listInstagramCandidates(userAccessToken);
+    const candidates = await listMetaPageCandidates(userAccessToken);
 
     if (candidates.length === 0) {
       return NextResponse.redirect(
         errorRedirect(
           request,
           clientId,
-          "No Instagram Business or Creator account is linked to any Facebook Page you administer. Link one in Meta Business Suite, then reconnect.",
+          "No Facebook Page found that you administer. Create or select a Page in Meta Business Suite, then reconnect.",
         ),
       );
     }
 
     if (candidates.length === 1) {
-      await storeInstagramConnection(clientId, candidates[0]);
-      await storeFacebookConnection(clientId, candidates[0]);
+      // A Facebook connection is always made -- every candidate here is a
+      // real Facebook Page regardless of Instagram linkage (5 August 2026:
+      // Messenger-only Pages used to be silently excluded from this list
+      // entirely; Morgan asked for them to work too). Instagram only comes
+      // along when this specific Page actually has one linked.
+      const candidate = candidates[0];
+      await storeFacebookConnection(clientId, candidate);
+      if (candidate.instagramAccountId) {
+        await storeInstagramConnection(clientId, candidate);
+      }
       const url = new URL(`/admin/clients/${clientId}`, request.url);
-      url.searchParams.set("metaConnected", "instagram");
+      url.searchParams.set("metaConnected", candidate.instagramAccountId ? "instagram-facebook" : "facebook");
       return NextResponse.redirect(url);
     }
 
-    // Multiple Pages with a linked Instagram account -- stash the
-    // candidate list in a short-lived, encrypted, httpOnly cookie rather
-    // than a new scratch DB table (this is only ever needed for the few
-    // minutes until Morgan picks one on the next screen) and send him to
-    // the picker.
+    // More than one Facebook Page -- stash the candidate list in a
+    // short-lived, encrypted, httpOnly cookie rather than a new scratch DB
+    // table (this is only ever needed for the few minutes until Morgan
+    // picks one on the next screen) and send him to the picker.
     const response = NextResponse.redirect(new URL(`/admin/clients/${clientId}/meta-pages`, request.url));
     const encrypted = encryptToken(JSON.stringify({ clientId, candidates }));
     response.cookies.set(PENDING_META_CANDIDATES_COOKIE, JSON.stringify(encrypted), {
@@ -85,6 +92,13 @@ function errorRedirect(request: NextRequest, clientId: string | null, message: s
 }
 
 export async function storeInstagramConnection(clientId: string, candidate: MetaPageCandidate): Promise<void> {
+  // Defensive -- every real call site already checks candidate.instagramAccountId
+  // before calling this, but a candidate genuinely can lack one now that
+  // Messenger-only Pages are included in the list, so this must never
+  // silently write a connection with an empty/undefined externalAccountId.
+  if (!candidate.instagramAccountId) {
+    throw new Error("storeInstagramConnection called for a Page with no linked Instagram account");
+  }
   const encrypted = encryptToken(candidate.pageAccessToken);
   await db.clientMetaConnection.upsert({
     where: { clientId_platform: { clientId, platform: "INSTAGRAM" } },
@@ -92,7 +106,7 @@ export async function storeInstagramConnection(clientId: string, candidate: Meta
       clientId,
       platform: "INSTAGRAM",
       externalAccountId: candidate.instagramAccountId,
-      externalUsername: candidate.instagramUsername,
+      externalUsername: candidate.instagramUsername ?? "",
       pageId: candidate.pageId,
       accessTokenCiphertext: encrypted.ciphertext,
       accessTokenIv: encrypted.iv,
@@ -101,7 +115,7 @@ export async function storeInstagramConnection(clientId: string, candidate: Meta
     },
     update: {
       externalAccountId: candidate.instagramAccountId,
-      externalUsername: candidate.instagramUsername,
+      externalUsername: candidate.instagramUsername ?? "",
       pageId: candidate.pageId,
       accessTokenCiphertext: encrypted.ciphertext,
       accessTokenIv: encrypted.iv,
@@ -115,12 +129,14 @@ export async function storeInstagramConnection(clientId: string, candidate: Meta
 }
 
 // Phase 4 -- Page-linked flow was chosen for the Instagram connect flow
-// specifically so Facebook Messenger, once built, could reuse the exact
-// same connected identity rather than needing a second OAuth round trip.
-// This is that reuse: the same Page access token that authorizes sending
-// Instagram DMs also authorizes sending Messenger replies on that Page, so
-// connecting Instagram connects Messenger for the same Page at the same
-// time. externalAccountId is the Facebook Page id here (not the Instagram-
+// specifically so Facebook Messenger could reuse the exact same connected
+// identity rather than needing a second OAuth round trip. Called for
+// every candidate Page regardless of Instagram linkage -- Messenger works
+// off the Page itself, it has no dependency on an Instagram account
+// existing at all. When a Page does also have Instagram linked,
+// storeInstagramConnection is called alongside this one from the same
+// OAuth grant, so one connect covers both platforms for that Page.
+// externalAccountId is the Facebook Page id here (not the Instagram-
 // scoped account id storeInstagramConnection uses) -- that's what a
 // Messenger webhook's entry[].id actually carries.
 export async function storeFacebookConnection(clientId: string, candidate: MetaPageCandidate): Promise<void> {

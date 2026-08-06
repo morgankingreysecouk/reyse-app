@@ -151,7 +151,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ clientI
 
       {metaConnected && (
         <div className="px-4 py-2.5 rounded-lg bg-success/10 border border-success/30 text-sm text-success flex items-center gap-2">
-          <CheckCircle2 size={14} /> Instagram and Facebook Messenger connected for this Page.
+          <CheckCircle2 size={14} />
+          {metaConnected === "facebook"
+            ? "Facebook Messenger connected for this Page (no Instagram account linked to it)."
+            : "Instagram and Facebook Messenger connected for this Page."}
         </div>
       )}
       {metaConnectError && (

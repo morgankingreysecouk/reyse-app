@@ -14,7 +14,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { clientId } = await params;
   const form = await request.formData();
-  const chosenId = form.get("instagramAccountId");
+  // pageId, not instagramAccountId -- a Facebook Page is always present on
+  // every candidate (that's the whole picker list), while an Instagram
+  // account might not be, so pageId is the one identifier guaranteed to
+  // exist for every choice on the screen.
+  const chosenId = form.get("pageId");
 
   const raw = request.cookies.get(PENDING_META_CANDIDATES_COOKIE)?.value;
   const target = new URL(`/admin/clients/${clientId}`, request.url);
@@ -29,12 +33,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const parsed = JSON.parse(decrypted) as { clientId: string; candidates: MetaPageCandidate[] };
     if (parsed.clientId !== clientId) throw new Error("Client mismatch");
 
-    const chosen = parsed.candidates.find((c) => c.instagramAccountId === chosenId);
-    if (!chosen) throw new Error("Chosen account not found in the pending list");
+    const chosen = parsed.candidates.find((c) => c.pageId === chosenId);
+    if (!chosen) throw new Error("Chosen Page not found in the pending list");
 
-    await storeInstagramConnection(clientId, chosen);
     await storeFacebookConnection(clientId, chosen);
-    target.searchParams.set("metaConnected", "instagram");
+    if (chosen.instagramAccountId) {
+      await storeInstagramConnection(clientId, chosen);
+    }
+    target.searchParams.set("metaConnected", chosen.instagramAccountId ? "instagram-facebook" : "facebook");
   } catch (err) {
     target.searchParams.set("metaConnectError", err instanceof Error ? err.message : "Connection failed");
   }

@@ -6,11 +6,10 @@ import { PENDING_META_CANDIDATES_COOKIE } from "@/app/api/dm/meta/callback/route
 import type { MetaPageCandidate } from "@/lib/dm/metaOAuth";
 import { Card, CardContent } from "@/components/ui/card";
 
-// Only reached when a client's Meta account has more than one Facebook
-// Page with a linked Instagram account -- src/app/api/dm/meta/callback
-// redirects here instead of connecting automatically, since guessing which
-// Page a real client's DMs should come from would be a genuinely wrong
-// default to pick silently.
+// Only reached when a client's Meta account administers more than one
+// Facebook Page -- src/app/api/dm/meta/callback redirects here instead of
+// connecting automatically, since guessing which Page a real client's DMs
+// should come from would be a genuinely wrong default to pick silently.
 export default async function MetaPagesPickerPage({
   params,
 }: {
@@ -36,10 +35,10 @@ export default async function MetaPagesPickerPage({
 
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="font-display text-xl font-semibold text-ink">Choose the Instagram account to connect</h1>
+      <h1 className="font-display text-xl font-semibold text-ink">Choose the Facebook Page to connect</h1>
       <p className="mt-2 text-sm text-ink-muted">
-        More than one Facebook Page you administer has a linked Instagram account. Pick the one that belongs to
-        this client.
+        More than one Facebook Page you administer is available. Pick the one that belongs to this client --
+        Facebook Messenger connects either way, and Instagram connects too if that Page has one linked.
       </p>
 
       {candidates.length === 0 ? (
@@ -49,13 +48,17 @@ export default async function MetaPagesPickerPage({
       ) : (
         <div className="mt-6 space-y-3">
           {candidates.map((candidate) => (
-            <form key={candidate.instagramAccountId} action={`/api/clients/${clientId}/meta-pages`} method="POST">
-              <input type="hidden" name="instagramAccountId" value={candidate.instagramAccountId} />
+            <form key={candidate.pageId} action={`/api/clients/${clientId}/meta-pages`} method="POST">
+              <input type="hidden" name="pageId" value={candidate.pageId} />
               <button type="submit" className="w-full text-left">
                 <Card className="hover:border-ink-faint transition-colors">
                   <CardContent>
-                    <div className="font-medium text-ink">@{candidate.instagramUsername || "(no username)"}</div>
-                    <div className="text-sm text-ink-muted">via Facebook Page &quot;{candidate.pageName}&quot;</div>
+                    <div className="font-medium text-ink">{candidate.pageName}</div>
+                    <div className="text-sm text-ink-muted">
+                      {candidate.instagramAccountId
+                        ? `Instagram + Facebook Messenger -- @${candidate.instagramUsername || "(no username)"}`
+                        : "Facebook Messenger only -- no Instagram account linked to this Page"}
+                    </div>
                   </CardContent>
                 </Card>
               </button>

@@ -74,7 +74,7 @@ export async function exchangeCodeForLongLivedUserToken(code: string, redirectUr
   });
 
   // Long-lived exchange (~60 days) -- the Page access tokens derived from
-  // this in listInstagramCandidates() below inherit that lifetime and, in
+  // this in listMetaPageCandidates() below inherit that lifetime and, in
   // practice, don't expire on their own as long as this stays valid and
   // isn't revoked. Tracked and re-verified by the scheduled token health
   // check (src/lib/dm/metaTokenHealth.ts) regardless, not just assumed.
@@ -91,18 +91,26 @@ export interface MetaPageCandidate {
   pageId: string;
   pageName: string;
   pageAccessToken: string;
-  instagramAccountId: string;
-  instagramUsername: string;
+  // Absent when this Page has no linked Instagram professional (Business/
+  // Creator) account -- a Page in that state is still a fully valid
+  // Facebook Messenger candidate (see storeFacebookConnection), it just
+  // can't also become an Instagram connection. Morgan asked for this
+  // explicitly (5 August 2026) after the first version of this flow
+  // silently hid Messenger-only Pages entirely.
+  instagramAccountId?: string;
+  instagramUsername?: string;
 }
 
-// Lists every Facebook Page the connected user administers that has a
-// linked Instagram professional (Business/Creator) account -- only those
-// are usable for Instagram DM automation. Pages with no Instagram link are
-// silently excluded rather than shown as a dead-end choice. Uses Graph
-// API's nested-field expansion (`instagram_business_account{id,username}`)
-// to get everything needed in one call instead of one extra round trip
-// per page.
-export async function listInstagramCandidates(userAccessToken: string): Promise<MetaPageCandidate[]> {
+// Lists every Facebook Page the connected user administers, Instagram-
+// linked or not -- a Page with no linked Instagram account is still usable
+// for Facebook Messenger automation on its own, so it's included rather
+// than silently hidden (the callback route decides which of
+// storeInstagramConnection/storeFacebookConnection to call per candidate
+// based on which fields are actually present). Uses Graph API's
+// nested-field expansion (`instagram_business_account{id,username}`) to
+// get everything needed in one call instead of one extra round trip per
+// page.
+export async function listMetaPageCandidates(userAccessToken: string): Promise<MetaPageCandidate[]> {
   const accounts = await graphGet("/me/accounts", {
     access_token: userAccessToken,
     fields: "id,name,access_token,instagram_business_account{id,username}",
@@ -112,13 +120,12 @@ export async function listInstagramCandidates(userAccessToken: string): Promise<
   const candidates: MetaPageCandidate[] = [];
   for (const page of pages) {
     const igAccount = page.instagram_business_account as { id?: string; username?: string } | undefined;
-    if (!igAccount?.id) continue;
     candidates.push({
       pageId: String(page.id),
       pageName: String(page.name),
       pageAccessToken: String(page.access_token),
-      instagramAccountId: igAccount.id,
-      instagramUsername: igAccount.username ?? "",
+      instagramAccountId: igAccount?.id,
+      instagramUsername: igAccount?.username,
     });
   }
   return candidates;
