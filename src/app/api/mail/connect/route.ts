@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getConsentUrl } from "@/lib/mail/googleClient";
-import { getRequestBaseUrl } from "@/lib/requestUrl";
+import { buildAppUrl, getRequestBaseUrl } from "@/lib/requestUrl";
 
 // Kicks off the one-time Google consent flow for the dedicated
 // "Reyse Mail Assistant" OAuth client. Session check here is belt-and-
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     // Most likely cause: GMAIL_CLIENT_ID/SECRET not set on this deploy yet.
     // Send Morgan back to the Mail page with a plain-language reason
     // instead of Next's raw error page.
-    const mailUrl = new URL("/admin/mail", request.url);
+    const mailUrl = buildAppUrl(request, "/admin/mail");
     mailUrl.searchParams.set(
       "connectError",
       err instanceof Error ? err.message : "Couldn't start the connection",

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getRequestBaseUrl } from "@/lib/requestUrl";
+import { buildAppUrl, getRequestBaseUrl } from "@/lib/requestUrl";
 import {
   exchangeCodeForLongLivedUserToken,
   listMetaPageCandidates,
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       if (candidate.instagramAccountId) {
         await storeInstagramConnection(clientId, candidate);
       }
-      const url = new URL(`/admin/clients/${clientId}`, request.url);
+      const url = buildAppUrl(request, `/admin/clients/${clientId}`);
       url.searchParams.set("metaConnected", candidate.instagramAccountId ? "instagram-facebook" : "facebook");
       return NextResponse.redirect(url);
     }
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     // short-lived, encrypted, httpOnly cookie rather than a new scratch DB
     // table (this is only ever needed for the few minutes until Morgan
     // picks one on the next screen) and send him to the picker.
-    const response = NextResponse.redirect(new URL(`/admin/clients/${clientId}/meta-pages`, request.url));
+    const response = NextResponse.redirect(buildAppUrl(request, `/admin/clients/${clientId}/meta-pages`));
     const encrypted = encryptToken(JSON.stringify({ clientId, candidates }));
     response.cookies.set(PENDING_META_CANDIDATES_COOKIE, JSON.stringify(encrypted), {
       httpOnly: true,
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
 }
 
 function errorRedirect(request: NextRequest, clientId: string | null, message: string): URL {
-  const url = new URL(clientId ? `/admin/clients/${clientId}` : "/admin/clients", request.url);
+  const url = buildAppUrl(request, clientId ? `/admin/clients/${clientId}` : "/admin/clients");
   url.searchParams.set("metaConnectError", message);
   return url;
 }

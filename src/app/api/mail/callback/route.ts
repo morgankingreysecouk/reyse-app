@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { connectAccount } from "@/lib/mail/googleClient";
-import { getRequestBaseUrl } from "@/lib/requestUrl";
+import { buildAppUrl, getRequestBaseUrl } from "@/lib/requestUrl";
 
 // Google redirects the browser here after Morgan approves (or denies)
 // access. Still an authenticated browser navigation with the normal
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get("error");
   const code = searchParams.get("code");
 
-  const mailUrl = new URL("/admin/mail", request.url);
+  const mailUrl = buildAppUrl(request, "/admin/mail");
 
   if (error) {
     mailUrl.searchParams.set("connectError", error);

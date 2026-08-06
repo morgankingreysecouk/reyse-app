@@ -34,3 +34,21 @@ export function getRequestBaseUrl(request: NextRequest): string {
   const host = forwardedHost ?? request.nextUrl.host;
   return `${protocol}://${host}`;
 }
+
+// The redirect-target equivalent of the mistake getRequestBaseUrl() fixes
+// above -- `new URL(path, request.url)` looks correct (it's the standard
+// idiom for building a same-origin redirect from within a route handler)
+// but `request.url` carries the exact same wrong-behind-Railway's-proxy
+// host as `request.nextUrl` does, since both are derived from the same
+// raw connection info. Every redirect target built this way (an OAuth
+// success/error page, a picker screen, anything under /admin/...) was
+// independently vulnerable to the identical bug getRequestBaseUrl() was
+// built to prevent -- discovered because fixing only the Meta redirect_uri
+// computation left the *next* redirect in the same flow (the connect
+// route's own error page, the callback route's error/success pages)
+// still broken, landing on an unreachable localhost address one screen
+// later. Use this everywhere a route handler redirects back into the app
+// itself, never `new URL(path, request.url)` directly.
+export function buildAppUrl(request: NextRequest, path: string): URL {
+  return new URL(path, getRequestBaseUrl(request));
+}
