@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Search, Loader2, MapPin, Globe, LayoutGrid } from "lucide-react";
+import { useRef, useState } from "react";
+import { Search, Loader2, MapPin, Globe, LayoutGrid, X } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -17,6 +17,7 @@ interface ProgressState {
   message: string;
   saved: number;
   skipped: number;
+  failed: number;
   combosRun?: number;
   combosTotal?: number;
   capped?: string;
@@ -45,6 +46,7 @@ export function SearchPanel({
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const esRef = useRef<EventSource | null>(null);
 
   const region = UK_REGIONS.find((r) => r.name === regionName) ?? UK_REGIONS[0]!;
   const comboCount = region.points.length * SEARCH_TERMS.length;
@@ -52,7 +54,7 @@ export function SearchPanel({
   const runSearch = async () => {
     setRunning(true);
     setError(null);
-    setProgress({ message: "Starting...", saved: 0, skipped: 0 });
+    setProgress({ message: "Starting...", saved: 0, skipped: 0, failed: 0 });
 
     let activeCollectionId = collectionId;
     if (!activeCollectionId && newCollectionName.trim()) {
@@ -73,28 +75,50 @@ export function SearchPanel({
     if (activeCollectionId) url.searchParams.set("collectionId", activeCollectionId);
 
     const es = new EventSource(url.toString());
+    esRef.current = es;
     let saved = 0;
     let skipped = 0;
+    let failed = 0;
+    // The server still sends its normal "done" stats after a fatal "error"
+    // (e.g. 5 combos in a row failing the same way) -- it's the same code
+    // path as a clean finish, just arrived at early. Once the fatal error
+    // is shown, "done" arriving moments later shouldn't silently overwrite
+    // it back to a cheerful "Done."
+    let fatalErrorShown = false;
 
     es.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
+      if (fatalErrorShown) return;
       if (data.type === "status") {
-        setProgress((p) => ({ ...(p ?? { saved, skipped, message: "" }), saved, skipped, message: data.message }));
+        setProgress((p) => ({ ...(p ?? { saved, skipped, failed, message: "" }), saved, skipped, failed, message: data.message }));
       } else if (data.type === "classified") {
         saved++;
-        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped, message: `Saved: ${data.lead.name}` }));
+        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped, failed, message: `Saved: ${data.lead.name}` }));
       } else if (data.type === "skipped") {
         skipped++;
-        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped }));
+        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped, failed }));
+      } else if (data.type === "combo-error") {
+        failed++;
+        setProgress((p) => ({
+          ...(p ?? { message: "" }),
+          saved,
+          skipped,
+          failed,
+          message: `${data.point} -- "${data.term}" failed: ${data.message}`,
+        }));
       } else if (data.type === "capped") {
-        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped, capped: data.message }));
+        setProgress((p) => ({ ...(p ?? { message: "" }), saved, skipped, failed, capped: data.message }));
       } else if (data.type === "error") {
+        fatalErrorShown = true;
+        es.close();
+        setRunning(false);
         setError(data.message);
       } else if (data.type === "done") {
         setProgress((p) => ({
           message: "Done.",
           saved: data.stats.saved,
           skipped: data.stats.skippedDuplicates,
+          failed: data.stats.combosFailed ?? failed,
           combosRun: data.stats.combosRun,
           combosTotal: data.stats.combosTotal,
           capped: p?.capped,
@@ -109,6 +133,13 @@ export function SearchPanel({
       setRunning(false);
       setError((prev) => prev ?? "Connection to the search stream was lost.");
     };
+  };
+
+  const cancelSearch = () => {
+    esRef.current?.close();
+    setRunning(false);
+    setProgress((p) => (p ? { ...p, message: "Cancelled -- whatever was already found is saved." } : p));
+    onSearchComplete();
   };
 
   return (
@@ -198,10 +229,17 @@ export function SearchPanel({
           </div>
         </div>
 
-        <Button className="w-full" disabled={running} onClick={runSearch}>
-          {running ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-          {running ? "Searching..." : `Search all of ${region.name}`}
-        </Button>
+        <div className="flex gap-2">
+          <Button className="flex-1" disabled={running} onClick={runSearch}>
+            {running ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+            {running ? "Searching..." : `Search all of ${region.name}`}
+          </Button>
+          {running && (
+            <Button variant="secondary" onClick={cancelSearch} title="Stop this search -- whatever's already found stays saved">
+              <X size={14} /> Cancel
+            </Button>
+          )}
+        </div>
 
         {progress && (
           <div
@@ -219,6 +257,7 @@ export function SearchPanel({
             <p className="text-ink-muted">
               Saved {progress.saved}
               {progress.skipped > 0 && ` · Skipped ${progress.skipped} already known`}
+              {progress.failed > 0 && ` · ${progress.failed} search${progress.failed === 1 ? "" : "es"} failed`}
             </p>
           </div>
         )}

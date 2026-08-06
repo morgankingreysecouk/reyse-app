@@ -41,18 +41,36 @@ function openSmtpSession(host: string, timeoutMs: number): Promise<SmtpSession> 
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host, port: 25 });
     let buffer = "";
+    let dead: Error | null = null;
     const lineQueue: string[] = [];
-    const waitingForLine: { resolve: (line: string) => void }[] = [];
+    const waitingForLine: { resolve: (line: string) => void; reject: (err: Error) => void }[] = [];
+
+    // Any way the socket can die -- error, inactivity timeout, or a plain
+    // close -- has to reject whichever readResponse() is currently pending,
+    // not just the connect-phase promise. socket.on("error"/"timeout")
+    // calling reject() only mattered before "connect" fired; once resolve()
+    // has already run, that reject() is a silent no-op (a settled promise
+    // can't be re-settled), so without this, a server that goes silent
+    // mid-conversation left readResponse() awaiting a line that would never
+    // arrive -- hanging forever rather than failing safe into RISKY.
+    function fail(err: Error) {
+      dead = err;
+      clearTimeout(timer);
+      const waiters = waitingForLine.splice(0);
+      for (const w of waiters) w.reject(err);
+      reject(err);
+    }
 
     const timer = setTimeout(() => {
       socket.destroy();
-      reject(new Error("SMTP connection timed out"));
+      fail(new Error("SMTP connection timed out"));
     }, timeoutMs);
 
     function nextLine(): Promise<string> {
       const queued = lineQueue.shift();
       if (queued !== undefined) return Promise.resolve(queued);
-      return new Promise((res) => waitingForLine.push({ resolve: res }));
+      if (dead) return Promise.reject(dead);
+      return new Promise((res, rej) => waitingForLine.push({ resolve: res, reject: rej }));
     }
 
     async function readResponse(): Promise<string> {
@@ -79,15 +97,12 @@ function openSmtpSession(host: string, timeoutMs: number): Promise<SmtpSession> 
       }
     });
 
-    socket.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
+    socket.on("error", (err) => fail(err));
     socket.on("timeout", () => {
-      clearTimeout(timer);
       socket.destroy();
-      reject(new Error("SMTP socket timed out"));
+      fail(new Error("SMTP socket timed out"));
     });
+    socket.on("close", () => fail(new Error("SMTP connection closed")));
     socket.setTimeout(timeoutMs);
   });
 }

@@ -37,10 +37,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // per query, same as the old backend, but this respects the *daily* free
 // quota rather than just the per-call cap, so it won't silently start
 // costing money once the free 100 is used up today.
+export interface CustomSearchResult {
+  candidates: SearchCandidate[];
+  // Non-null if a page request itself failed -- see the matching field on
+  // PlacesSearchResult for why this exists: without it, a broken key and a
+  // genuinely empty result set are indistinguishable, and whatever
+  // candidates an earlier page in the same call already turned up would
+  // otherwise be silently discarded by throwing.
+  error: string | null;
+}
+
 export async function searchCustomSearch(params: {
   query: string;
   maxResults?: number;
-}): Promise<SearchCandidate[]> {
+}): Promise<CustomSearchResult> {
   const key = CSE_KEY();
   const cx = CSE_ID();
   if (!key || !cx) throw new Error("GOOGLE_CUSTOM_SEARCH_KEY / GOOGLE_CUSTOM_SEARCH_CX not set");
@@ -51,6 +61,7 @@ export async function searchCustomSearch(params: {
   const candidates: SearchCandidate[] = [];
   const seenDomains = new Set<string>();
   const maxResults = params.maxResults ?? 30;
+  let error: string | null = null;
 
   let start = 1;
   while (candidates.length < maxResults && start <= 91) {
@@ -65,9 +76,16 @@ export async function searchCustomSearch(params: {
 
     const res = await fetch(url.toString());
     await incrementUsage("cseCalls");
-    if (!res.ok) break;
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => "");
+      error = `Custom Search HTTP ${res.status}${bodyText ? ` -- ${bodyText.slice(0, 300)}` : ""}`;
+      break;
+    }
     const data = (await res.json()) as CseResponse;
-    if (data.error) throw new Error(`Custom Search error: ${data.error.message ?? "unknown"}`);
+    if (data.error) {
+      error = `Custom Search error: ${data.error.message ?? "unknown"}`;
+      break;
+    }
 
     const items = data.items ?? [];
     if (items.length === 0) break;
@@ -83,5 +101,5 @@ export async function searchCustomSearch(params: {
     await sleep(150);
   }
 
-  return candidates;
+  return { candidates, error };
 }
