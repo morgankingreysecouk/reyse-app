@@ -4,7 +4,10 @@ import GoogleProvider from "next-auth/providers/google";
 // Single hardcoded allowlist — this console has exactly one legitimate user.
 // No database, no roles table to misconfigure: if the signed-in Google
 // account's verified email doesn't match this, sign-in is refused outright.
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "morgan.king@reyse.co.uk";
+// Exported since a couple of platform-level (not per-client) notifications
+// -- e.g. DM Automation's webhook health check -- need somewhere to alert
+// that isn't tied to any one client's own notificationEmail.
+export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "morgan.king@reyse.co.uk";
 
 export const authOptions: NextAuthOptions = {
   providers: [

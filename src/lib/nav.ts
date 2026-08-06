@@ -4,6 +4,7 @@ import {
   MessageCircle,
   Camera,
   Users,
+  Building2,
   BarChart3,
   Settings,
   Mic,
@@ -28,6 +29,11 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Live Chat", href: "/admin/live-chat", icon: MessageCircle },
   { label: "Talk to Rey", href: "/admin/talk", icon: Mic },
   { label: "Social", href: "/admin/social", icon: Camera },
+  // "Clients" = onboarded paying businesses using DM Automation (or a
+  // future automation) -- distinct from "Leads" below, which is
+  // prospective business that hasn't signed up yet. Easy to conflate at a
+  // glance, so worth being explicit here.
+  { label: "Clients", href: "/admin/clients", icon: Building2 },
   { label: "Leads", href: "/admin/leads", icon: Users },
   { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
   { label: "Settings", href: "/admin/settings", icon: Settings },
