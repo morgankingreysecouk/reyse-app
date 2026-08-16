@@ -3,7 +3,12 @@ import type { gmail_v1 } from "googleapis";
 import { logAiUsage } from "@/lib/aiUsageLog";
 import { createFolder, refileMessage, type Folder } from "./labels";
 
-const MODEL = "claude-opus-4-8";
+// Haiku, not Opus -- this is bounded mechanical classification ("which
+// folder does this go in"), not the nuanced/creative judgement Opus earns
+// its cost on elsewhere (e.g. captionGenerator.ts). Switched 16 August
+// 2026 on Morgan's go-ahead after Opus proved needlessly expensive for
+// this task -- ~5x cheaper on both input and output.
+const MODEL = "claude-haiku-4-5-20251001";
 
 export interface InboxMessage {
   id: string;
