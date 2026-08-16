@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Mail as MailIcon, Inbox, Folder, RefreshCw, AlertCircle } from "lucide-react";
+import { Mail as MailIcon, Inbox, Folder, RefreshCw, AlertCircle, Eraser } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +55,7 @@ export default function MailPage() {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -84,6 +85,25 @@ export default function MailPage() {
     // Same plain fetch-on-mount/change pattern as the rest of this app --
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
+  }, [load]);
+
+  const handleReset = useCallback(async () => {
+    const confirmed = window.confirm(
+      "Delete every existing folder and let Rey rebuild them from scratch based on your actual emails?\n\nNothing is deleted from Gmail itself -- your emails stay exactly where they are, just unfiled until the sweep re-files them into fresh folders. This can take a while for a big mailbox.",
+    );
+    if (!confirmed) return;
+
+    setResetting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/mail/reset", { method: "POST" });
+      if (!res.ok) throw new Error("Reset failed");
+      await load();
+    } catch {
+      setError("Couldn't reset your folders. Try again.");
+    } finally {
+      setResetting(false);
+    }
   }, [load]);
 
   const connectError = searchParams.get("connectError");
@@ -144,6 +164,9 @@ export default function MailPage() {
           )}
           <Button variant="secondary" size="sm" onClick={() => load()}>
             <RefreshCw size={14} /> Refresh
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleReset} disabled={resetting}>
+            <Eraser size={14} /> {resetting ? "Resetting..." : "Reset folders"}
           </Button>
         </div>
       </div>
