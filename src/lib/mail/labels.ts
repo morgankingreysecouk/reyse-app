@@ -81,27 +81,45 @@ export async function refileMessage(
 
   const toAdd = targetFolders.filter((f) => !currentIds.has(f.id));
   const toRemove = currentFolders.filter((f) => !targetIds.has(f.id));
+  const addLabelIds = toAdd.map((f) => f.id);
   const removeLabelIds = toRemove.map((f) => f.id);
-  // Filing should also get a message out of the primary inbox view --
-  // Gmail's standard "move to folder" behaviour, confirmed with Morgan 31
-  // July 2026, not just tagging it. INBOX is a system label, deliberately
-  // excluded from currentFolders/targetFolders (see isFolderLabel above),
-  // so it can't be picked up by the folder diff above and is handled here
-  // instead. Gated on inInbox rather than removed unconditionally so an
-  // already-archived message that only needs a folder change doesn't get
-  // a pointless extra removeLabelIds call every tick.
-  if (inInbox) removeLabelIds.push("INBOX");
 
-  if (toAdd.length === 0 && removeLabelIds.length === 0) return; // already correctly filed
+  // Filing into a folder also archives out of the primary inbox view --
+  // Gmail's standard "move to folder" behaviour, confirmed with Morgan 31
+  // July 2026, not just tagging it. But a message with *no* target folder
+  // is the deliberate exception: Morgan's own call (16 August 2026) --
+  // something that genuinely needs his direct, urgent action should stay
+  // sitting in the main inbox, not get filed away into an "Important"
+  // folder where it's easy to lose track of. So the inbox rule flips
+  // depending on whether anything's actually being filed: filing archives,
+  // not-filing keeps (or puts back) in the inbox. INBOX is a system label,
+  // deliberately excluded from currentFolders/targetFolders (see
+  // isFolderLabel above), so it can't be picked up by the folder diff
+  // above and is handled here instead. Gated on inInbox rather than
+  // touched unconditionally so a message already in the right state
+  // doesn't get a pointless extra API call every tick.
+  if (targetFolders.length > 0) {
+    if (inInbox) removeLabelIds.push("INBOX");
+  } else if (!inInbox) {
+    addLabelIds.push("INBOX");
+  }
+
+  if (addLabelIds.length === 0 && removeLabelIds.length === 0) return; // already correct
 
   await gmail.users.messages.modify({
     userId: "me",
     id: messageId,
-    requestBody: {
-      addLabelIds: toAdd.map((f) => f.id),
-      removeLabelIds,
-    },
+    requestBody: { addLabelIds, removeLabelIds },
   });
+
+  if (targetFolders.length === 0) {
+    const fromList = currentFolders.map((f) => `"${f.name}"`).join(", ");
+    await log(
+      "MESSAGE_MOVED",
+      `Kept "${subject}" in the main inbox -- looks like it needs your direct attention${fromList ? ` (moved out of ${fromList})` : ""}`,
+    );
+    return;
+  }
 
   const targetList = targetFolders.map((f) => `"${f.name}"`).join(", ");
   const folderSetChanged = toAdd.length > 0 || toRemove.length > 0;

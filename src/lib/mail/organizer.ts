@@ -45,7 +45,8 @@ const OUTPUT_SCHEMA = {
           folders: {
             type: "array",
             items: { type: "string" },
-            description: "Folder name(s) for this message -- existing names or ones listed in newFolders. Usually just one; only use more than one if the message genuinely belongs in more than one place.",
+            description:
+              "Folder name(s) for this message -- existing names or ones listed in newFolders. Usually just one; only use more than one if the message genuinely belongs in more than one place. Leave this empty ONLY when the message needs Morgan's own urgent, direct action soon -- that keeps it sitting in his main inbox instead of being filed away.",
           },
         },
         required: ["messageId", "folders"],
@@ -66,7 +67,7 @@ ${existingFolders.length > 0 ? existingFolders.map((f) => `- ${f}`).join("\n") :
 RULES:
 - Strongly prefer an existing folder over creating a new one. Only propose a new folder when a message genuinely doesn't fit anything existing and represents a real recurring category, not a one-off.
 - Keep the folder set broad and tidy, not fragmented -- think "Finance", "Reyse Clients", "Personal", "Receipts", "Newsletters", not a new folder per sender.
-- Every message must be assigned to at least one folder.
+- Most messages should be assigned to at least one folder. The one exception: if a message genuinely needs Morgan's own urgent, direct action soon -- not just informational, not something that can sit in a folder until he gets to it -- assign it an empty folders array instead. That keeps it sitting visibly in his main inbox rather than filed away and out of sight. Use this sparingly, for real time-sensitive items only, never as a catch-all "important" bucket -- if everything ends up unfiled, the inbox is cluttered again and this feature has failed at its one job.
 - Judge from the subject, sender, and snippet given -- don't invent content you can't see.
 - This is filing, not summarising or replying -- just decide where each message belongs.`;
 }
@@ -144,7 +145,11 @@ export async function organizeMessages(
     const folders = assignment.folders
       .map((name) => folderByName.get(name.trim().toLowerCase()))
       .filter((f): f is Folder => Boolean(f));
-    if (folders.length === 0) continue;
+
+    // Only skip if the model named folders that didn't actually resolve to
+    // anything real (a data problem) -- a deliberately empty `folders`
+    // array is valid and means "keep this one in the main inbox."
+    if (assignment.folders.length > 0 && folders.length === 0) continue;
 
     await refileMessage(gmail, message.id, message.subject, message.currentFolders, folders, message.inInbox);
   }
