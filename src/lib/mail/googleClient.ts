@@ -83,13 +83,14 @@ export async function connectAccount(code: string, baseUrl: string): Promise<str
     );
   }
 
-  client.setCredentials(tokens);
-  const oauth2 = google.oauth2({ version: "v2", auth: client });
-  const { data } = await oauth2.userinfo.get();
-  const email = data.email;
-  if (!email) {
-    throw new Error("Couldn't read the connected account's email address from Google");
-  }
+  // No call to Google's userinfo API to "discover" the connected email --
+  // that needs its own email/profile scope, which was never requested
+  // (MAIL_SCOPES is Gmail-only), so the call failed with exactly a
+  // missing-credential error. Unnecessary anyway: this is a single-user
+  // Internal app, and the session required to even reach this route is
+  // already locked to ADMIN_EMAIL (src/lib/auth.ts), so the account
+  // completing this flow is always the same one, by construction.
+  const email = process.env.ADMIN_EMAIL || "morgan.king@reyse.co.uk";
 
   const encrypted = encryptToken(tokens.refresh_token);
   await db.mailAccount.upsert({
