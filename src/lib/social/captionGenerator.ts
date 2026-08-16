@@ -77,7 +77,7 @@ function formatNote(plan: PostPlan): string {
   return "Format: SINGLE image post. Write exactly 1 slide entry.";
 }
 
-function buildSystemPrompt(pillar: SocialPillar, plan: PostPlan, knowledge: string): string {
+function buildSystemPrompt(pillar: SocialPillar, plan: PostPlan, knowledge: string, pastFeedback: string): string {
   const config = PILLAR_CONFIG[pillar];
   return `You are acting as Reyse's social media manager, writing a real post for Reyse's own Instagram and Facebook accounts. Reyse is a UK company selling AI guest-messaging automation to independent holiday-let (short-term rental) hosts. The output must be genuinely good enough to publish as-is, not a rough draft -- write like an experienced, disciplined social media manager, not a generic AI. Never accept a flat, generic result: if a line could apply to any company, rewrite it until it could only be Reyse.
 
@@ -87,6 +87,7 @@ ${knowledge}
 </knowledge>
 
 Every factual claim (pricing, features, how Reyse works, any number) must come directly from the knowledge above. Never invent a customer name, quote, testimonial, review, or statistic that isn't stated there. Reyse deliberately does not use fake social proof -- the old website had fabricated testimonials and they were removed for exactly this reason. If you don't have a real fact to support a claim, don't make the claim -- write around it instead.
+${pastFeedback ? `\n${pastFeedback}\n` : ""}
 
 BRAND VOICE:
 - UK English, GBP pricing where relevant.
@@ -120,6 +121,7 @@ export async function generatePost(params: {
   pillar: SocialPillar;
   plan: PostPlan;
   knowledge: string;
+  pastFeedback: string;
   retryFeedback?: string;
 }): Promise<GeneratedPost> {
   const client = new Anthropic();
@@ -136,7 +138,7 @@ export async function generatePost(params: {
       effort: "high",
       format: { type: "json_schema", schema: OUTPUT_SCHEMA },
     },
-    system: buildSystemPrompt(params.pillar, params.plan, params.knowledge),
+    system: buildSystemPrompt(params.pillar, params.plan, params.knowledge, params.pastFeedback),
     messages: [{ role: "user", content: userMessage }],
   });
 
@@ -185,6 +187,7 @@ export async function generateValidatedPost(params: {
   pillar: SocialPillar;
   plan: PostPlan;
   knowledge: string;
+  pastFeedback: string;
 }): Promise<GeneratedPost> {
   const first = await generatePost(params);
   if (first.issues.length === 0) return first;

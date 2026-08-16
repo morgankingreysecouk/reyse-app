@@ -1,15 +1,22 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { LogOut } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 
-export function Topbar() {
+export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
   const { data: session } = useSession();
 
   return (
-    <header className="h-16 shrink-0 border-b border-border bg-surface flex items-center justify-end gap-4 px-6">
+    <header className="h-16 shrink-0 border-b border-border bg-surface flex items-center gap-4 px-4 lg:px-6">
+      <button
+        onClick={onMenuClick}
+        className="text-ink-muted hover:text-ink transition-colors lg:hidden"
+        aria-label="Open menu"
+      >
+        <Menu size={20} />
+      </button>
       {session?.user?.email && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 ml-auto">
           <div className="text-right leading-tight">
             <div className="text-sm text-ink font-medium">
               {session.user.name ?? "Morgan King"}

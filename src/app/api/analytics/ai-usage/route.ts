@@ -1,15 +1,19 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 
-export async function GET() {
+// Optional ?clientId= param, added for DM Automation's per-client cost tab
+// (reyse-app's first multi-tenant feature) -- omitted, this behaves
+// exactly as before and covers every feature's usage together.
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const clientId = request.nextUrl.searchParams.get("clientId");
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
   const entries = await db.aiUsageLog.findMany({
-    where: { createdAt: { gte: thirtyDaysAgo } },
+    where: { createdAt: { gte: thirtyDaysAgo }, ...(clientId ? { clientId } : {}) },
   });
 
   const byFeature = new Map<

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { buildAppUrl } from "@/lib/requestUrl";
 
 // Route protection (Next.js 16 renamed "middleware" to "proxy").
 // Written directly against getToken rather than the next-auth/middleware
@@ -11,7 +12,12 @@ export default async function proxy(request: NextRequest) {
   });
 
   if (!token) {
-    const loginUrl = new URL("/login", request.url);
+    // buildAppUrl, not new URL(path, request.url) -- request.url reflects
+    // Railway's internal connection host, not the public domain (see
+    // requestUrl.ts's own comment); a signed-out visit on Railway would
+    // otherwise bounce to an unreachable localhost login page instead of
+    // back to the real site.
+    const loginUrl = buildAppUrl(request, "/login");
     return NextResponse.redirect(loginUrl);
   }
 

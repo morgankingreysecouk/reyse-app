@@ -257,6 +257,14 @@ model SocialPost {
   reviewedAt DateTime?
   reviewedBy String?
 
+  // Morgan's own quality rating/notes on this specific post, independent of
+  // its publish status -- lets him review the whole history (not just the
+  // pending queue) and build up a record of what's actually working, not
+  // just what got approved. 1-10, nullable since most posts start unrated.
+  rating       Int?
+  ratingNote   String?
+  ratedAt      DateTime?
+
   // Soft delete only -- same pattern as every other feature this session,
   // never hard-deleted from the UI, always recoverable via restore.
   deletedAt DateTime?
@@ -329,6 +337,187 @@ model SocialSettings {
   @@map("ra_social_settings")
 }
 
+// Lead Generation -- finds prospective clients (independent UK holiday-let
+// owners with their own direct-booking website, per IDEAL_CUSTOMER_PROFILE.md
+// carried over from the old backend) via two search channels, enriches their
+// contact details, and verifies those details actually work before they're
+// usable. Built 30 July 2026, replacing the old `reyse` backend's version.
+//
+// Prior art (old `reyse` repo, super-admin/lead-gen) had real, documented
+// weaknesses this rebuild fixes directly:
+//   - Dedup was almost nonexistent: uniqueness was on the raw URL string, so
+//     http/https/www variants of the same site created separate rows, and
+//     nothing stopped a business resurfacing (and re-costing an AI
+//     classification call) in a later search. Here, `domain` is the unique
+//     key, normalized (no protocol/www/trailing slash) before every lookup,
+//     and a domain that has EVER been seen -- found, contacted, or manually
+//     excluded -- is checked BEFORE spending a search/classification call,
+//     not after.
+//   - `status`/`enrichmentStatus` were plain strings with no DB-level
+//     guarantee of validity. Here they're real enums, same pattern as every
+//     other model in this schema.
+//   - The old "blocked contacts" list was advisory only -- it didn't filter
+//     CSV export despite the UI claiming it did. Here, `excluded` lives
+//     directly on the Lead row itself (one source of truth, not two tables
+//     that can drift out of sync) and every read path (list, export) filters
+//     on it.
+//   - Nothing was ever hard-deleted in spirit, but the old schema didn't
+//     enforce that -- same soft-delete-via-flag pattern as Enquiry/SocialPost
+//     here: `excluded` marks a lead as permanently out of rotation without
+//     losing the dedup memory a hard delete would lose.
+enum LeadClassification {
+  INDEPENDENT // genuine independent owner-run holiday-let business
+  PLATFORM // Airbnb/Booking.com/Sykes/etc. or an agency-branded multi-owner platform
+  IRRELEVANT // reachable site but not a holiday-let business at all
+  ERROR // homepage unreachable/timed out -- unclassified, not the same as irrelevant
+
+  @@map("ra_lead_classification")
+}
+
+enum LeadSource {
+  PLACES // Google Places API -- real geo/business-listing search
+  CUSTOM_SEARCH // Google Custom Search JSON API -- broader web search
+  MANUAL
+
+  @@map("ra_lead_source")
+}
+
+enum LeadEnrichmentStatus {
+  PENDING // not yet attempted
+  COMPLETE // phone, email, and instagram all found
+  PARTIAL // 1-2 of phone/email/instagram found
+  NOT_FOUND // homepage fetched fine, nothing usable found
+  FAILED // homepage itself was unreachable
+
+  @@map("ra_lead_enrichment_status")
+}
+
+// Deliberately three states, not a boolean -- the old tool's MX-only check
+// couldn't distinguish "definitely works" from "domain accepts everything,
+// might not actually have this mailbox" (a catch-all domain). RISKY is that
+// honest middle state: MX exists but a live SMTP deliverability probe either
+// came back ambiguous or couldn't run at all (see verifyEmail.ts -- some
+// hosts block outbound port 25, in which case this never claims VALID on
+// probe results it doesn't actually have).
+enum LeadEmailVerification {
+  UNVERIFIED
+  VALID
+  RISKY
+  INVALID
+
+  @@map("ra_lead_email_verification")
+}
+
+enum LeadInstagramVerification {
+  UNVERIFIED
+  VALID
+  INVALID
+
+  @@map("ra_lead_instagram_verification")
+}
+
+model LeadCollection {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  leads Lead[]
+
+  @@map("ra_lead_collection")
+}
+
+model Lead {
+  id String @id @default(cuid())
+
+  // Normalized: lowercase host, no protocol, no leading "www.", no trailing
+  // slash/path. This -- not the raw URL -- is the permanent dedup key, and
+  // it's checked before any paid/metered call is made for a candidate, not
+  // just before the DB write.
+  domain String @unique
+  url    String // canonical https://domain for display/linking
+  name   String
+
+  location String?
+  source   LeadSource
+
+  classification       LeadClassification
+  classificationReason String?
+
+  phone               String?
+  email               String?
+  instagram           String?
+  linkedin            String?
+  facebook            String?
+  contactName         String?
+  personalisationLine String?
+  enrichmentStatus    LeadEnrichmentStatus @default(PENDING)
+  enrichedAt          DateTime?
+
+  emailVerification     LeadEmailVerification     @default(UNVERIFIED)
+  emailVerifiedAt       DateTime?
+  instagramVerification LeadInstagramVerification @default(UNVERIFIED)
+  instagramVerifiedAt   DateTime?
+
+  // Permanent, not a second table -- true the moment a lead is manually
+  // rejected, found to be a platform/irrelevant, or marked contacted.
+  // Filters every list/export read path. Row is never hard-deleted so the
+  // domain dedup memory never resets.
+  excluded       Boolean @default(false)
+  excludedReason String?
+
+  collectionId String?
+  collection   LeadCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+
+  exportedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classification])
+  @@index([excluded])
+  @@index([email])
+  @@index([instagram])
+  @@index([collectionId])
+  @@index([createdAt])
+  @@map("ra_lead")
+}
+
+// One row per calendar date -- tracks Google Places/Custom Search call
+// volume against their free-tier daily limits (Custom Search: 100/day free;
+// Places: metered against the $200/month Google Cloud credit). Separate from
+// AiUsageLog below, which is Claude-call cost specifically; this is
+// external-API call *count*, not a cost figure, since neither Google API's
+// cost-per-call is worth hardcoding here the way Claude's token pricing is.
+model LeadSearchUsage {
+  id            String @id @default(cuid())
+  date          String @unique // "YYYY-MM-DD"
+  placesCalls   Int    @default(0) // informational log only -- see LeadPlacesMonthlyUsage for the real enforced cap
+  cseCalls      Int    @default(0)
+  classifyCalls Int    @default(0)
+
+  @@map("ra_lead_search_usage")
+}
+
+// The real spend-prevention mechanism for Google Places (New) -- Morgan was
+// explicit: this must never cost money. Google's own free tier resets
+// monthly against the Cloud Billing account's own cycle date, which this
+// app has no way to know -- so rather than track by exact calendar month
+// and risk being out of sync with Google's actual reset date, the caps in
+// usage.ts are set noticeably BELOW the real free allowance (Text Search
+// Pro: 5,000/month free, capped here at 4,000; Place Details Enterprise:
+// 1,000/month free, capped here at 800) as a deliberate safety margin, and
+// this table is reset by calendar month as a reasonable approximation.
+// Hitting either cap stops that call type for the rest of the month rather
+// than ever letting a call through that might be billed.
+model LeadPlacesMonthlyUsage {
+  id                String @id @default(cuid())
+  month             String @unique // "YYYY-MM"
+  textSearchCalls   Int    @default(0)
+  placeDetailsCalls Int    @default(0)
+
+  @@map("ra_lead_places_monthly_usage")
+}
+
 // Singleton settings row for Talk to Rey's spoken voice. Kokoro-82M (the
 // DeepInfra TTS model this feature already uses) has no pitch/tone knobs --
 // the only real controls are which built-in voice to use, an optional
@@ -362,10 +551,17 @@ model AiUsageLog {
   imageCount   Int?
   costUsd      Float?
 
+  // Nullable -- set by DM Automation ("dm-reply", see below), reyse-app's
+  // first multi-tenant feature. Every other feature's rows stay null
+  // (Reyse's own single-tenant usage, no client to attribute it to).
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
   createdAt DateTime @default(now())
 
   @@index([feature, createdAt])
   @@index([createdAt])
+  @@index([clientId, createdAt])
   @@map("ra_ai_usage_log")
 }
 
@@ -477,4 +673,449 @@ model MailActivityLog {
 
   @@index([createdAt])
   @@map("ra_mail_activity_log")
+}
+
+// ---------------------------------------------------------------------
+// DM Automation -- Instagram/Facebook DM auto-replies for Reyse's actual
+// paying clients (independent holiday-let hosts), not Reyse itself. This
+// is reyse-app's first genuinely multi-tenant feature: every model above
+// this line is single-tenant, built only for Reyse's own accounts/inbox.
+// Morgan manages every client himself through this dashboard -- there is
+// no client-facing login anywhere in this feature, by deliberate choice.
+//
+// Prior art: an old, single-tenant, hardcoded Instagram DM bot existed in
+// the abandoned `reyse` repo (Morgan's own account only, no client
+// onboarding ever built). Its real, previously-undiagnosed failure was a
+// webhook signature bug (the POST HMAC check used the GET verify-token
+// instead of the actual app secret, so every inbound DM silently 401'd
+// with no alert) -- see src/lib/dm/webhookAuth.ts and the scheduled
+// synthetic health check in src/lib/dm/scheduler.ts, both built
+// specifically so that class of bug can't ship silently again.
+//
+// Naming convention: generic tenant/property concepts below (Client,
+// Property, PropertyKnowledgeBase, CalendarConnection, CalendarBlock,
+// Booking) are named plainly, not "Dm"-prefixed, since a future WhatsApp
+// Automation feature is expected to reuse this same tenant model rather
+// than invent its own. Everything specific to DM mechanics (webhook
+// payload shape, the 24h messaging window, echo events) is Dm-prefixed,
+// since that doesn't generalize to WhatsApp's own webhook format.
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+
+  @@map("ra_client_status")
+}
+
+model Client {
+  id     String       @id @default(cuid())
+  name   String
+  slug   String       @unique
+  status ClientStatus @default(ACTIVE)
+
+  // Where booking/escalation notifications go -- defaults to Morgan's own
+  // address for client zero, settable per client later so a real host can
+  // get their own notifications without ever needing a login.
+  notificationEmail String
+
+  // Hard per-client kill switch, checked before any AI reply is
+  // generated -- independent of any single conversation's own escalation
+  // state.
+  aiEnabled Boolean @default(true)
+
+  notes String?
+
+  properties      Property[]
+  metaConnections ClientMetaConnection[]
+  conversations   DmConversation[]
+  activityLogs    DmActivityLog[]
+  aiUsageLogs     AiUsageLog[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("ra_client")
+}
+
+model Property {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  name     String
+  location String?
+
+  checkInTime  String?
+  checkOutTime String?
+
+  // Needed to interpret an iCal feed's all-day date blocks, and "which
+  // calendar date is check-in", correctly -- an easy off-by-one-night bug
+  // if this stays implicit (UTC vs the property's actual local date).
+  timezone String @default("Europe/London")
+
+  isActive Boolean @default(true)
+
+  knowledgeBase      PropertyKnowledgeBase?
+  calendarConnection CalendarConnection?
+  conversations      DmConversation[]
+  bookings           Booking[]
+  calendarBlocks     CalendarBlock[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([deletedAt])
+  @@map("ra_property")
+}
+
+// 1:1 with Property, shaped exactly like ChatKnowledge above -- one
+// free-text block edited in an admin textarea, same UX, no new form
+// plumbing. This is what src/lib/dm/replyEngine.ts grounds every DM reply
+// in, per property rather than one shared singleton.
+model PropertyKnowledgeBase {
+  id         String   @id @default(cuid())
+  propertyId String   @unique
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  content   String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("ra_property_knowledge_base")
+}
+
+enum ClientMetaConnectionStatus {
+  ACTIVE
+  NEEDS_REAUTH
+  ERROR
+
+  @@map("ra_client_meta_connection_status")
+}
+
+// One row per (Client, platform) -- Instagram now, Facebook Messenger in
+// a later phase reuses this same model. Reuses the existing SocialPlatform
+// enum below (INSTAGRAM/FACEBOOK already means the same thing there) --
+// an enum of platform names isn't itself tenant data, so sharing it with
+// the unrelated Social content-posting feature is fine.
+model ClientMetaConnection {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  platform SocialPlatform
+
+  // The Instagram-scoped business account id (or, for Facebook Messenger
+  // later, the Page id) that an inbound webhook's entry[].id is matched
+  // against to route the message to this client.
+  externalAccountId String
+  externalUsername  String?
+  pageId            String?
+
+  // AES-256-GCM, same shape as MailAccount's refresh token above -- see
+  // src/lib/dm/crypto.ts. Never stored plain.
+  accessTokenCiphertext String
+  accessTokenIv         String
+  accessTokenAuthTag    String
+  tokenExpiresAt        DateTime?
+
+  status               ClientMetaConnectionStatus @default(ACTIVE)
+  lastHealthCheckAt    DateTime?
+  lastHealthCheckError String?
+
+  connectedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([clientId, platform])
+  @@unique([platform, externalAccountId])
+  @@index([status])
+  @@map("ra_client_meta_connection")
+}
+
+enum DmConversationStatus {
+  AI_ACTIVE
+  ESCALATED
+  HUMAN_ACTIVE
+  CLOSED
+
+  @@map("ra_dm_conversation_status")
+}
+
+// One per guest DM thread -- the direct analog of ChatConversation above,
+// scoped to a Client (and, once determined, a Property) instead of being
+// implicitly "Reyse's own".
+model DmConversation {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Nullable until determined -- a single-property client auto-binds
+  // immediately; a multi-property client's conversation starts unbound
+  // until resolvePropertyOrAsk() (src/lib/dm/replyEngine.ts) asks the
+  // guest which property they mean.
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id])
+
+  // Counts how many times resolvePropertyOrAsk() has asked a multi-property
+  // client's guest which property they mean -- bounds the retry (ask, one
+  // re-ask on an ambiguous/unmatched answer, then escalate) so a confused
+  // exchange can't loop forever. Reset to 0 once a property is resolved.
+  propertyDisambiguationAttempts Int @default(0)
+
+  platform         SocialPlatform
+  externalUserId   String
+  externalUsername String?
+
+  status           DmConversationStatus @default(AI_ACTIVE)
+  escalatedAt      DateTime?
+  escalationReason String?
+
+  // Per-conversation override on top of Client.aiEnabled -- lets Morgan
+  // silence just one thread without pausing the whole client.
+  aiEnabled Boolean @default(true)
+
+  // Enforces Meta's 24-hour messaging window in code, not only in the
+  // prompt -- see src/lib/dm/replyEngine.ts.
+  lastInboundAt  DateTime?
+  lastOutboundAt DateTime?
+
+  messages     DmMessage[]
+  bookings     Booking[]
+  activityLogs DmActivityLog[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastMessageAt DateTime  @default(now())
+  deletedAt     DateTime?
+
+  @@unique([clientId, platform, externalUserId])
+  @@index([clientId, status])
+  @@index([deletedAt])
+  @@index([lastInboundAt])
+  @@map("ra_dm_conversation")
+}
+
+// Deliberately its own enum, not a reuse of ChatRole above -- ChatRole
+// belongs to Reyse's own marketing-site widget, and sharing it with
+// per-client guest data would be exactly the kind of accidental coupling
+// this schema otherwise goes out of its way to avoid (the same principle
+// as why DM conversations don't reuse the Enquiry model -- see
+// reyse-app/CLAUDE.md).
+enum DmMessageRole {
+  GUEST
+  AI
+  OPERATOR
+
+  @@map("ra_dm_message_role")
+}
+
+model DmMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   DmConversation @relation(fields: [conversationId], references: [id])
+
+  role    DmMessageRole
+  content String
+
+  // Meta's own message id ("mid") -- the idempotency key. Nullable-unique
+  // (Postgres allows multiple NULLs) so upserting on this is what
+  // survives the echo-arrives-before-write race the old repo's own
+  // bug-fix commit identified and fixed.
+  externalMessageId String? @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("ra_dm_message")
+}
+
+enum DmActivityAction {
+  ESCALATED
+  TAKEN_OVER_BY_OPERATOR
+  RETURNED_TO_AI
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  TOKEN_REAUTH_NEEDED
+  WEBHOOK_HEALTH_CHECK_FAILED
+
+  @@map("ra_dm_activity_action")
+}
+
+// Paper trail, modelled directly on MailActivityLog above.
+model DmActivityLog {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  conversationId String?
+  conversation   DmConversation? @relation(fields: [conversationId], references: [id])
+
+  action  DmActivityAction
+  summary String
+
+  createdAt DateTime @default(now())
+
+  @@index([clientId, createdAt])
+  @@map("ra_dm_activity_log")
+}
+
+enum CalendarSource {
+  ICAL
+  GOOGLE
+
+  @@map("ra_calendar_source")
+}
+
+enum CalendarConnectionStatus {
+  ACTIVE
+  ERROR
+
+  @@map("ra_calendar_connection_status")
+}
+
+// 1:1 with Property. Either an iCal feed URL (no OAuth, works with any
+// platform/channel manager's standard export) or a Google Calendar
+// connection -- a client picks one per property at setup (Phase 2).
+model CalendarConnection {
+  id         String   @id @default(cuid())
+  propertyId String   @unique
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  source CalendarSource
+
+  icalUrl String?
+
+  googleCalendarId             String?
+  googleRefreshTokenCiphertext String?
+  googleRefreshTokenIv         String?
+  googleRefreshTokenAuthTag    String?
+
+  status        CalendarConnectionStatus @default(ACTIVE)
+  lastSyncedAt  DateTime?
+  lastSyncError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ra_calendar_connection")
+}
+
+enum CalendarBlockSource {
+  ICAL_IMPORT
+  GOOGLE_IMPORT
+  REYSE_BOOKING
+
+  @@map("ra_calendar_block_source")
+}
+
+// The unified "this date range is unavailable" record regardless of
+// where it came from -- src/lib/dm/calendar/availability.ts only ever
+// queries this table, never CalendarConnection.source, which is the
+// entire point of normalizing both import sources plus Reyse's own
+// bookings into one shape.
+model CalendarBlock {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  source CalendarBlockSource
+
+  // The iCal feed's own UID, the Google event id, or a synthesized
+  // "reyse-booking:<bookingId>" -- always populated, which makes a
+  // refresh a clean upsert-on-conflict + delete-what's-missing diff.
+  externalUid String
+
+  // Stored as UTC-midnight-of-the-property's-local-calendar-date -- a
+  // deliberate convention (not an instant in time), documented here since
+  // it must be read/written consistently everywhere this model is
+  // touched.
+  startDate DateTime
+  endDate   DateTime
+
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([propertyId, externalUid])
+  @@index([propertyId, startDate, endDate])
+  @@map("ra_calendar_block")
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+
+  @@map("ra_booking_status")
+}
+
+// A booking confirmed inside Reyse -- field names deliberately avoid any
+// language implying this writes to Airbnb/Booking.com, because it can't
+// (no third-party API exists for that). It blocks the dates in Reyse's
+// own record (a CalendarBlock) and, for a Google-sourced property, is
+// also pushed onto the client's actual Google Calendar -- see
+// src/lib/dm/calendar/google.ts. Either way the host is notified, so a
+// human always knows a booking happened even though nothing required
+// their approval first.
+model Booking {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  conversationId String?
+  conversation   DmConversation? @relation(fields: [conversationId], references: [id])
+
+  guestName    String
+  guestContact String?
+
+  startDate DateTime
+  endDate   DateTime
+
+  status BookingStatus @default(CONFIRMED)
+
+  notes          String?
+  notifiedHostAt DateTime?
+
+  // Set only when this booking was pushed onto a client's actual Google
+  // Calendar (source GOOGLE properties only) -- lets a later cancellation
+  // remove the real event too, not just the internal CalendarBlock.
+  googleEventId String?
+
+  calendarBlocks CalendarBlock[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([propertyId, startDate, endDate])
+  @@index([conversationId])
+  @@index([deletedAt])
+  @@map("ra_booking")
+}
+
+// Append-only record from the scheduled synthetic-webhook safeguard (see
+// src/lib/dm/scheduler.ts) -- the automated check that exists specifically
+// because the old DM system's webhook signature bug silently broke every
+// inbound message with no alert, for a real stretch of time, discovered
+// only by manually DMing the account. This is what would have caught it
+// immediately instead.
+model DmWebhookHealthCheckLog {
+  id    String   @id @default(cuid())
+  ranAt DateTime @default(now())
+  ok    Boolean
+
+  statusCode   Int?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+
+  @@index([ranAt])
+  @@map("ra_dm_webhook_health_check_log")
 }

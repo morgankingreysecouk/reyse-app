@@ -40,12 +40,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const post = await db.socialPost.findUnique({ where: { id } });
   if (!post || post.deletedAt) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (typeof b.caption === "string" || Array.isArray(b.hashtags)) {
+  const ratingProvided = "rating" in b;
+  const ratingNoteProvided = typeof b.ratingNote === "string";
+  if (typeof b.caption === "string" || Array.isArray(b.hashtags) || ratingProvided || ratingNoteProvided) {
+    if (ratingProvided && b.rating !== null && (typeof b.rating !== "number" || b.rating < 1 || b.rating > 10)) {
+      return NextResponse.json({ error: "rating must be 1-10 or null" }, { status: 400 });
+    }
     const updated = await db.socialPost.update({
       where: { id },
       data: {
         ...(typeof b.caption === "string" ? { caption: b.caption } : {}),
         ...(Array.isArray(b.hashtags) ? { hashtags: b.hashtags.map(String) } : {}),
+        ...(ratingProvided ? { rating: b.rating as number | null, ratedAt: b.rating === null ? null : new Date() } : {}),
+        ...(ratingNoteProvided ? { ratingNote: b.ratingNote as string } : {}),
       },
     });
     return NextResponse.json({ post: updated });
