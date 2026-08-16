@@ -10,8 +10,12 @@
 //                        with attached_media referencing each media_fbid
 //                        (Facebook has no native organic "carousel" post
 //                        type the way Instagram does)
-const INSTAGRAM_API_VERSION = "v25.0";
-const FACEBOOK_API_VERSION = "v25.0";
+// Bumped from v25.0 to v26.0 (16 Aug 2026) -- current as of a live check;
+// Graph API versions stay callable for 2 years after the next one ships,
+// then silently fall back rather than erroring, so this can drift unnoticed
+// for a long time. Worth a periodic check, not a one-off fix.
+const INSTAGRAM_API_VERSION = "v26.0";
+const FACEBOOK_API_VERSION = "v26.0";
 
 // app.reyse.co.uk isn't actually attached to this Railway service yet (see
 // reyse-app/CLAUDE.md) -- same workaround used everywhere else this

@@ -6,6 +6,7 @@ import { generateAndStoreImage } from "./imageGenerator";
 import { TEMPLATE_LAYOUTS } from "./templateRenderer";
 import { nextOptimalTime } from "./postingTime";
 import { getRecentFeedback } from "./feedback";
+import { getOptimalHours } from "./audienceInsights";
 import { publishToInstagram, publishToFacebook } from "./graphApi";
 import type { SocialPlatform, SocialImageSource } from "@/generated/prisma/client";
 
@@ -88,6 +89,10 @@ async function generateNewPostPairUnlocked(pillarOverride?: string): Promise<{ g
 
   const groupId = crypto.randomUUID();
   const autonomous = settings.publishingMode === "AUTONOMOUS";
+  // Reyse's own real audience-active hours once they exist (see
+  // audienceInsights.ts), the static research-based defaults otherwise --
+  // computed once per generation, same reasoning as layout above.
+  const optimalHours = autonomous ? await getOptimalHours() : [];
 
   const perPlatform: Record<SocialPlatform, { caption: string; hashtags: string[] }> = {
     INSTAGRAM: { caption: generated.instagramCaption, hashtags: generated.instagramHashtags },
@@ -102,11 +107,13 @@ async function generateNewPostPairUnlocked(pillarOverride?: string): Promise<{ g
         type: plan.type,
         pillar,
         status: autonomous ? "SCHEDULED" : "DRAFT",
-        // Autonomous posts land on the next real engagement window (late
-        // morning / lunch / evening UK time) after the safety buffer, not
-        // just "10 minutes after generation" regardless of what time that
-        // happens to be -- a post generated at 3am shouldn't publish at 3am.
-        scheduledFor: autonomous ? nextOptimalTime(new Date(Date.now() + AUTONOMOUS_PUBLISH_DELAY_MS)) : null,
+        // Autonomous posts land on the next real engagement window after
+        // the safety buffer, not just "10 minutes after generation"
+        // regardless of what time that happens to be -- a post generated
+        // at 3am shouldn't publish at 3am.
+        scheduledFor: autonomous
+          ? nextOptimalTime(new Date(Date.now() + AUTONOMOUS_PUBLISH_DELAY_MS), optimalHours)
+          : null,
         caption: perPlatform[platform].caption,
         hashtags: perPlatform[platform].hashtags,
         images: {
