@@ -90,9 +90,11 @@ export async function classifyMessages(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 4000,
-    thinking: { type: "adaptive" },
+    // Haiku doesn't support extended thinking (the API 400s on `thinking`),
+    // and `effort` is a thinking-adjacent control -- dropped both, keeping
+    // only the structured JSON output format, which works independent of
+    // either on every model.
     output_config: {
-      effort: "medium",
       format: { type: "json_schema", schema: OUTPUT_SCHEMA },
     },
     system: buildSystemPrompt(existingFolders),
