@@ -40,23 +40,30 @@ export async function GET(request: NextRequest) {
     maxAge,
   });
 
-  // Derived from forwarded headers, not request.url/request.nextUrl -- behind
-  // Railway's edge proxy those reflect the internal address the container
-  // sees itself on (e.g. http://localhost:3000), not the public address the
-  // browser is actually using. Building the redirect target or the
-  // https-ness check from the internal view sends the browser to an address
-  // only reachable from inside the container -- confirmed the hard way.
+  // Redirect target: derived from forwarded headers, not request.url/
+  // request.nextUrl -- behind Railway's edge proxy those reflect the
+  // internal address the container sees itself on (e.g. http://localhost:3000),
+  // not the public address the browser is actually using. Confirmed via a
+  // live diagnostic dump of the actual request Railway forwards.
   const forwardedProto = request.headers.get("x-forwarded-proto");
   const isHttps = forwardedProto ? forwardedProto === "https" : request.nextUrl.protocol === "https:";
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? request.nextUrl.host;
   const origin = `${isHttps ? "https" : "http"}://${host}`;
 
-  const cookieName = isHttps ? "__Secure-next-auth.session-token" : "next-auth.session-token";
+  // Cookie name/secure flag: MUST mirror next-auth's own getToken() (used by
+  // proxy.ts) exactly, or proxy.ts won't recognize the session and bounces
+  // back to /login. getToken() decides secureCookie from NEXTAUTH_URL/VERCEL
+  // -- NOT from the incoming request's protocol, so the isHttps check above
+  // is the wrong thing to key the cookie on despite being right for the
+  // redirect target. Confirmed against next-auth's own jwt/index.js source
+  // and a live round-trip that failed until this matched.
+  const secureCookie = process.env.NEXTAUTH_URL?.startsWith("https://") ?? !!process.env.VERCEL;
+  const cookieName = secureCookie ? "__Secure-next-auth.session-token" : "next-auth.session-token";
 
   const response = NextResponse.redirect(new URL("/admin/clients/new", origin));
   response.cookies.set(cookieName, token, {
     httpOnly: true,
-    secure: isHttps,
+    secure: secureCookie,
     sameSite: "lax",
     path: "/",
     maxAge,
