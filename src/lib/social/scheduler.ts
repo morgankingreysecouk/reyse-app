@@ -1,5 +1,8 @@
 import { db } from "@/lib/db";
 import { generateNewPostPair, getOrCreateSettings, publishPost } from "./postPipeline";
+import { refreshAudienceActiveHours, refreshPostMetrics } from "./audienceInsights";
+
+const AUDIENCE_INSIGHTS_REFRESH_MS = 20 * 60 * 60 * 1000;
 
 // 5-minute tick -- confirmed as the old `reyse` backend's actual working
 // mechanism for this (read directly from its source, 22 July 2026), not
@@ -45,6 +48,16 @@ async function maybePublishDue(): Promise<void> {
   }
 }
 
+// Roughly once a day, not every 5-minute tick -- a single online_followers
+// call is cheap, but there's no reason to make it 288 times a day when the
+// underlying data itself only meaningfully shifts over days, not minutes.
+async function maybeRefreshAudienceInsights(): Promise<void> {
+  const settings = await getOrCreateSettings();
+  const fetchedAt = settings.audienceInsightsFetchedAt;
+  if (fetchedAt && Date.now() - fetchedAt.getTime() < AUDIENCE_INSIGHTS_REFRESH_MS) return;
+  await refreshAudienceActiveHours();
+}
+
 let started = false;
 
 export function startSocialScheduler(): void {
@@ -55,6 +68,8 @@ export function startSocialScheduler(): void {
   const tick = () => {
     maybeGenerate().catch((error) => console.error("Social autopilot tick (generate) failed:", error));
     maybePublishDue().catch((error) => console.error("Social autopilot tick (publish) failed:", error));
+    maybeRefreshAudienceInsights().catch((error) => console.error("Social autopilot tick (audience insights) failed:", error));
+    refreshPostMetrics().catch((error) => console.error("Social autopilot tick (post metrics) failed:", error));
   };
 
   setInterval(tick, TICK_INTERVAL_MS);

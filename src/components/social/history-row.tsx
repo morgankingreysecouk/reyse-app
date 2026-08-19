@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Eye, Heart } from "lucide-react";
 import { RatingInput } from "./rating-input";
 import { PillarBadge, PlatformBadge, StatusBadge } from "./badges";
 import type { SocialPost, SocialPostImage } from "@/generated/prisma/client";
@@ -70,6 +71,16 @@ export function HistoryRow({ post }: { post: PostWithImages }) {
           <PlatformBadge platform={post.platform} />
           <StatusBadge status={post.status} />
           <PillarBadge pillar={post.pillar} />
+          {post.metricsFetchedAt && (
+            <span className="inline-flex items-center gap-2 text-[11px] text-ink-muted">
+              <span className="inline-flex items-center gap-1">
+                <Eye size={11} /> {post.reach ?? 0}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Heart size={11} /> {post.engagement ?? 0}
+              </span>
+            </span>
+          )}
           <span className="text-[11px] text-ink-faint ml-auto shrink-0">
             {new Date(post.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
           </span>

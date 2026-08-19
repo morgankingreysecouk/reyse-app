@@ -5,8 +5,8 @@ import { X, Check, XCircle, Send, Undo2, Trash2, RotateCcw, ChevronLeft, Chevron
 import { Button } from "@/components/ui/button";
 import { PillarBadge, PlatformBadge, StatusBadge } from "./badges";
 import { InstagramPreview, FacebookPreview } from "./platform-preview";
-import { nextOptimalTime } from "@/lib/social/postingTime";
-import type { SocialPost, SocialPostImage } from "@/generated/prisma/client";
+import { nextOptimalTime, topHoursFromDistribution } from "@/lib/social/postingTime";
+import type { SocialPost, SocialPostImage, SocialSettings } from "@/generated/prisma/client";
 
 // datetime-local inputs want "YYYY-MM-DDTHH:mm" in the browser's local
 // time -- Date#toISOString gives UTC, so this reads the local field values
@@ -23,10 +23,12 @@ type PostWithImages = SocialPost & { images: SocialPostImage[] };
 // version independently, since they publish independently too.
 export function PostModal({
   posts,
+  settings,
   onClose,
   onChanged,
 }: {
   posts: PostWithImages[];
+  settings?: SocialSettings | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -292,7 +294,13 @@ export function PostModal({
                     size="sm"
                     variant="secondary"
                     className="shrink-0 whitespace-nowrap"
-                    onClick={() => setScheduledFor(toDatetimeLocalValue(nextOptimalTime(new Date())))}
+                    onClick={() => {
+                      const hours = topHoursFromDistribution(
+                        settings?.audienceActiveHours as Record<string, number> | null | undefined,
+                        settings?.audienceInsightsFetchedAt,
+                      );
+                      setScheduledFor(toDatetimeLocalValue(nextOptimalTime(new Date(), hours)));
+                    }}
                     disabled={busy}
                   >
                     Best time

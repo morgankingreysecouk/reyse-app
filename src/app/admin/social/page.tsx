@@ -220,6 +220,7 @@ export default function InstagramPage() {
       {selected && (
         <PostModal
           posts={selected}
+          settings={settings}
           onClose={() => setSelected(null)}
           onChanged={load}
         />

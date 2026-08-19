@@ -265,6 +265,17 @@ model SocialPost {
   ratingNote   String?
   ratedAt      DateTime?
 
+  // Real engagement pulled from the platform's own Insights API once a
+  // published post has had time to settle (fetched ~48h after publishing,
+  // not immediately -- early numbers are noisy). reach is unique accounts
+  // shown the post; engagement is a single combined count (likes + comments
+  // + saves + shares on Instagram, engaged_users on Facebook) -- different
+  // platforms expose different metric sets, and Morgan wants one comparable
+  // number per post, not a pile of platform-specific fields to interpret.
+  reach            Int?
+  engagement       Int?
+  metricsFetchedAt DateTime?
+
   // Soft delete only -- same pattern as every other feature this session,
   // never hard-deleted from the UI, always recoverable via restore.
   deletedAt DateTime?
@@ -330,6 +341,16 @@ model SocialSettings {
 
   postsPerWeekInstagram Int @default(3)
   postsPerWeekFacebook  Int @default(3)
+
+  // Instagram's own "online_followers" insight for Reyse's actual account --
+  // Meta's own recommended way to time posts (help.instagram.com's "Most
+  // Active Times"), refetched daily. Stored as a JSON map of UK-local hour
+  // (0-23, as a string key) to the percentage of followers online then, e.g.
+  // {"10": 42, "19": 61, ...}. Null until the first successful fetch;
+  // nextOptimalTime() falls back to the static research-based hours in
+  // postingTime.ts whenever this is missing or stale.
+  audienceActiveHours     Json?
+  audienceInsightsFetchedAt DateTime?
 
   lastGeneratedAt DateTime?
   updatedAt       DateTime  @updatedAt
